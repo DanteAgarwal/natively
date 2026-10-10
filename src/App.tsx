@@ -1,204 +1,1351 @@
-import React, { useState, useEffect } from "react" // forcing refresh
-import { QueryClient, QueryClientProvider } from "react-query"
-import { ToastProvider, ToastViewport } from "./components/ui/toast"
-import NativelyInterface from "./components/NativelyInterface"
-import SettingsPopup from "./components/SettingsPopup" // Keeping for legacy/specific window support if needed
-import Launcher from "./components/Launcher"
-import ModelSelectorWindow from "./components/ModelSelectorWindow"
-import SettingsOverlay from "./components/SettingsOverlay"
-import StartupSequence from "./components/StartupSequence"
-import { AnimatePresence, motion } from "framer-motion"
-import UpdateBanner from "./components/UpdateBanner"
-import { SupportToaster } from "./components/SupportToaster"
-import { analytics } from "./lib/analytics/analytics.service"
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  Camera,
+  Send,
+  Settings,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+  Shield,
+  ShieldOff,
+  EyeOff,
+  Sparkles,
+  Zap,
+  Check,
+  X,
+  ExternalLink,
+  Loader2,
+  Copy,
+  MessageSquare,
+  ScanLine,
+  Info,
+  StopCircle,
+  ChevronRight,
+  Minus,
+  GripHorizontal,
+  Download,
+  MousePointer,
+  Briefcase,
+  Code,
+  FileText,
+} from 'lucide-react';
+import { MarkdownRenderer } from './components/MarkdownRenderer';
 
-const queryClient = new QueryClient()
-
-const App: React.FC = () => {
-  const isSettingsWindow = new URLSearchParams(window.location.search).get('window') === 'settings';
-  const isLauncherWindow = new URLSearchParams(window.location.search).get('window') === 'launcher';
-  const isOverlayWindow = new URLSearchParams(window.location.search).get('window') === 'overlay';
-  const isModelSelectorWindow = new URLSearchParams(window.location.search).get('window') === 'model-selector';
-
-  // Default to launcher if not specified (dev mode safety)
-  const isDefault = !isSettingsWindow && !isOverlayWindow && !isModelSelectorWindow;
-
-  // Initialize Analytics
-  useEffect(() => {
-    // Only init if we are in a main window context to avoid duplicate events from helper windows
-    // Actually, we probably want to track app open from the main entry point.
-    // Let's protect initialization to ensure single run per window.
-    // The service handles single-init, but let's be thoughtful about WHICH window tracks "App Open".
-    // Launcher is the main entry. Overlay is the "Assistant".
-
-    analytics.initAnalytics();
-
-    if (isLauncherWindow || isDefault) {
-      analytics.trackAppOpen();
-    }
-
-    if (isOverlayWindow) {
-      analytics.trackAssistantStart();
-    }
-
-    // Cleanup / Session End
-    const handleUnload = () => {
-      if (isOverlayWindow) {
-        analytics.trackAssistantStop();
-      }
-      if (isLauncherWindow || isDefault) {
-        analytics.trackAppClose();
-      }
-    };
-
-    window.addEventListener('beforeunload', handleUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleUnload);
-    };
-  }, [isLauncherWindow, isOverlayWindow, isDefault]);
-
-  // State
-  const [showStartup, setShowStartup] = useState(true);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-
-  // Handlers
-  const handleStartMeeting = async () => {
-    try {
-      const inputDeviceId = localStorage.getItem('preferredInputDeviceId');
-      let outputDeviceId = localStorage.getItem('preferredOutputDeviceId');
-      const useLegacyAudio = localStorage.getItem('useLegacyAudioBackend') === 'true';
-
-      // Override output device ID to force SCK if experimental mode is enabled
-      // Default to SCK unless legacy is enabled
-      if (!useLegacyAudio) {
-        console.log("[App] Using ScreenCaptureKit backend (Default).");
-        outputDeviceId = "sck";
-      } else {
-        console.log("[App] Using Legacy CoreAudio backend (User Preference).");
-      }
-
-      const result = await window.electronAPI.startMeeting({
-        audio: { inputDeviceId, outputDeviceId }
-      });
-      if (result.success) {
-        analytics.trackMeetingStarted();
-        // Switch to Overlay Mode via IPC
-        // The main process handles window switching, but we can reinforce it or just trust main.
-        // Actually, main process startMeeting triggers nothing UI-wise unless we tell it to switch window
-        // But we configured main.ts to not auto-switch?
-        // Let's explicitly request mode change.
-        await window.electronAPI.setWindowMode('overlay');
-      } else {
-        console.error("Failed to start meeting:", result.error);
-      }
-    } catch (err) {
-      console.error("Failed to start meeting:", err);
-    }
-  };
-
-  const handleEndMeeting = async () => {
-    console.log("[App.tsx] handleEndMeeting triggered");
-    analytics.trackMeetingEnded();
-    try {
-      await window.electronAPI.endMeeting();
-      console.log("[App.tsx] endMeeting IPC completed");
-      // Switch back to Native Launcher Mode
-      await window.electronAPI.setWindowMode('launcher');
-    } catch (err) {
-      console.error("Failed to end meeting:", err);
-      window.electronAPI.setWindowMode('launcher');
-    }
-  };
-
-  // Render Logic
-  if (isSettingsWindow) {
-    return (
-      <div className="h-full min-h-0 w-full">
-        <QueryClientProvider client={queryClient}>
-          <ToastProvider>
-            <SettingsPopup />
-            <ToastViewport />
-          </ToastProvider>
-        </QueryClientProvider>
-      </div>
-    );
-  }
-
-  if (isModelSelectorWindow) {
-    return (
-      <div className="h-full min-h-0 w-full overflow-hidden">
-        <QueryClientProvider client={queryClient}>
-          <ToastProvider>
-            <ModelSelectorWindow />
-            <ToastViewport />
-          </ToastProvider>
-        </QueryClientProvider>
-      </div>
-    );
-  }
-
-  // --- OVERLAY WINDOW (Meeting Interface) ---
-  if (isOverlayWindow) {
-    return (
-      <div className="w-full relative bg-transparent">
-        <QueryClientProvider client={queryClient}>
-          <ToastProvider>
-            <NativelyInterface
-              onEndMeeting={handleEndMeeting}
-            />
-            <UpdateBanner />
-            <ToastViewport />
-          </ToastProvider>
-        </QueryClientProvider>
-      </div>
-    );
-  }
-
-  // --- LAUNCHER WINDOW (Default) ---
-  // Renders if window=launcher OR no param
-  return (
-    <div className="h-full min-h-0 w-full relative">
-      <AnimatePresence>
-        {showStartup ? (
-          <motion.div
-            key="startup"
-            initial={{ opacity: 1 }}
-            exit={{ opacity: 0, scale: 1.1, pointerEvents: "none", transition: { duration: 0.6, ease: "easeInOut" } }}
-          >
-            <StartupSequence onComplete={() => setShowStartup(false)} />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="main"
-            className="h-full w-full"
-            initial={{ opacity: 0, scale: 0.98, y: 15 }} // "Linear" style entry: slightly down and scaled down
-            animate={{ opacity: 1, scale: 1, y: 0 }}      // Slide up and snap to place
-            transition={{
-              duration: 0.8,
-              ease: [0.19, 1, 0.22, 1], // Expo-out: snappy start, smooth landing
-              delay: 0.1
-            }}
-          >
-            <QueryClientProvider client={queryClient}>
-              <ToastProvider>
-                <Launcher
-                  onStartMeeting={handleStartMeeting}
-                  onOpenSettings={() => setIsSettingsOpen(true)}
-                />
-                <SettingsOverlay
-                  isOpen={isSettingsOpen}
-                  onClose={() => setIsSettingsOpen(false)}
-                />
-                <ToastViewport />
-              </ToastProvider>
-            </QueryClientProvider>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <UpdateBanner />
-      <SupportToaster />
-    </div>
-  )
+interface Message {
+  id: string;
+  role: 'user' | 'model';
+  text: string;
+  screenshotPreview?: string;
+  timestamp: number;
+  isError?: boolean;
 }
 
-export default App
+interface AppConfig {
+  provider: 'gemini' | 'groq';
+  geminiApiKey: string;
+  groqApiKey: string;
+  systemInstruction: string;
+  model: string;
+  groqModel: string;
+  temperature: number;
+  autoFallback: boolean;
+}
+
+type ActiveTab = 'chat' | 'capture';
+type AssistantMode = 'general' | 'interview' | 'coding' | 'meeting';
+
+const ASSISTANT_MODES: Array<{ id: AssistantMode; label: string; icon: string; prompt: string }> = [
+  { id: 'general', label: 'General', icon: '⚡', prompt: 'Provide a concise, direct, accurate answer without unnecessary filler.' },
+  { id: 'interview', label: 'Interview', icon: '💼', prompt: 'Structure your response using the STAR method (Situation, Task, Action, Result) or crisp conversational bullet points that are natural to speak aloud in an interview.' },
+  { id: 'coding', label: 'LeetCode / Code', icon: '💻', prompt: 'Identify the problem, provide optimal Time & Space Complexity, give concise intuition, and output clean, fully correct, idiomatic code.' },
+  { id: 'meeting', label: 'Meeting Notes', icon: '📝', prompt: 'Extract executive summary, key decisions, action items, and objections handling in structured bullets.' },
+];
+
+const QUICK_PROMPTS = [
+  { label: 'Solve', icon: '🎯', prompt: 'Analyze this screen. If there is a question, problem, or code error, provide the immediate correct solution. Be concise and direct.' },
+  { label: 'Explain', icon: '💡', prompt: 'Explain what is on this screen in simple terms. Break it down step by step.' },
+  { label: 'Debug Code', icon: '🐛', prompt: 'Find and fix any bugs or errors in the code shown on screen. Show corrected code with brief explanations.' },
+  { label: 'Summarize', icon: '📝', prompt: 'Summarize the key information on this screen in bullet points.' },
+];
+
+const App: React.FC = () => {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputPrompt, setInputPrompt] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isGhostActive, setIsGhostActive] = useState(true);
+  const [isClickThrough, setIsClickThrough] = useState(false);
+  const [assistantMode, setAssistantMode] = useState<AssistantMode>('general');
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<ActiveTab>('chat');
+  const [capturePrompt, setCapturePrompt] = useState('');
+  const [showQuickPrompts, setShowQuickPrompts] = useState(false);
+  const [windowOpacity, setWindowOpacity] = useState(0.97);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+
+  // Config state
+  const [config, setConfig] = useState<AppConfig>({
+    provider: 'gemini',
+    geminiApiKey: '',
+    groqApiKey: '',
+    systemInstruction: '',
+    model: 'gemini-3.8-flash',
+    groqModel: 'llama-3.3-70b-versatile',
+    temperature: 0.7,
+    autoFallback: true,
+  });
+
+  const [testStatus, setTestStatus] = useState<{ testing: boolean; success?: boolean; error?: string } | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [captureStatus, setCaptureStatus] = useState<'idle' | 'capturing' | 'analyzing'>('idle');
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const captureInputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<boolean>(false);
+
+  // Load config on mount
+  useEffect(() => {
+    if (window.ghostAPI) {
+      window.ghostAPI.getConfig().then((cfg) => {
+        if (cfg) {
+          if (cfg.model === 'gemini-2.5-flash') {
+            cfg.model = 'gemini-3.8-flash';
+          }
+          setConfig((prev) => ({ ...prev, ...cfg }));
+        }
+      });
+    }
+  }, []);
+
+  // Set up event listeners from Electron
+  useEffect(() => {
+    if (!window.ghostAPI) return;
+
+    const unsubChunk = window.ghostAPI.onStreamChunk((chunk) => {
+      if (abortRef.current) return;
+      setMessages((prev) => {
+        if (prev.length === 0) return prev;
+        const last = prev[prev.length - 1];
+        if (last.role === 'model') {
+          return [...prev.slice(0, -1), { ...last, text: last.text + chunk }];
+        }
+        return prev;
+      });
+    });
+
+    const unsubEnd = window.ghostAPI.onStreamEnd(() => {
+      setIsStreaming(false);
+      setCaptureStatus('idle');
+      abortRef.current = false;
+    });
+
+    const unsubError = window.ghostAPI.onStreamError((err) => {
+      setIsStreaming(false);
+      setCaptureStatus('idle');
+      abortRef.current = false;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: 'model',
+          text: `⚠️ **Error**: ${err}`,
+          timestamp: Date.now(),
+          isError: true,
+        },
+      ]);
+    });
+
+    const unsubScreenshot = window.ghostAPI.onScreenshotCaptured(({ previewUrl, prompt }) => {
+      setCaptureStatus('analyzing');
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: 'user',
+          text: prompt,
+          screenshotPreview: previewUrl,
+          timestamp: Date.now(),
+        },
+        {
+          id: (Date.now() + 1).toString(),
+          role: 'model',
+          text: '',
+          timestamp: Date.now(),
+        },
+      ]);
+      setIsStreaming(true);
+      // Auto switch to chat to see result
+      setActiveTab('chat');
+    });
+
+    const unsubHotkeyCapture = window.ghostAPI.onTriggerCapture(() => {
+      handleCaptureAndAnalyze();
+    });
+
+    const unsubClickThrough = window.ghostAPI.onClickThroughToggled((active) => {
+      setIsClickThrough(active);
+    });
+
+    const unsubPanic = window.ghostAPI.onPanicHide(() => {
+      setIsStreaming(false);
+      setCaptureStatus('idle');
+      abortRef.current = true;
+    });
+
+    return () => {
+      unsubChunk();
+      unsubEnd();
+      unsubError();
+      unsubScreenshot();
+      unsubHotkeyCapture();
+      unsubClickThrough();
+      unsubPanic();
+    };
+  }, []);
+
+  // Emergency Escape / Panic key handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isSettingsOpen) {
+          setIsSettingsOpen(false);
+        } else if (showShortcuts) {
+          setShowShortcuts(false);
+        } else if (window.ghostAPI) {
+          window.ghostAPI.minimizeWindow();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSettingsOpen, showShortcuts]);
+
+  // Auto-scroll when messages update
+  useEffect(() => {
+    if (!isCollapsed) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isCollapsed]);
+
+  // Adjust window size on collapse/expand
+  useEffect(() => {
+    if (window.ghostAPI) {
+      if (isCollapsed) {
+        window.ghostAPI.setWindowHeight(52);
+      } else {
+        window.ghostAPI.setWindowHeight(600);
+      }
+    }
+  }, [isCollapsed]);
+
+  // Toggle Click-Through Mode
+  const handleToggleClickThrough = async () => {
+    if (window.ghostAPI) {
+      const active = await window.ghostAPI.toggleClickThrough();
+      setIsClickThrough(active);
+    }
+  };
+
+  // Export session to Markdown
+  const handleExportSession = async () => {
+    if (messages.length === 0) return;
+
+    let markdown = `# Ghost AI Session Export\n*Date: ${new Date().toLocaleString()}*  \n*Mode: ${assistantMode.toUpperCase()}*  \n*Model: ${config.model}*\n\n---\n\n`;
+
+    for (const msg of messages) {
+      const timeStr = new Date(msg.timestamp).toLocaleTimeString();
+      if (msg.role === 'user') {
+        markdown += `### 👤 Prompt (${timeStr})\n\n${msg.text}\n\n`;
+      } else {
+        markdown += `### 🤖 Ghost Copilot (${timeStr})\n\n${msg.text}\n\n---\n\n`;
+      }
+    }
+
+    if (window.ghostAPI) {
+      const res = await window.ghostAPI.exportSession(markdown);
+      if (res.success) {
+        setExportNotice('Saved to file ✓');
+        setTimeout(() => setExportNotice(null), 3500);
+      }
+    }
+  };
+
+  // Send a regular text message
+  const handleSendMessage = async () => {
+    const text = inputPrompt.trim();
+    if (!text || isStreaming) return;
+
+    const activeKey = config.provider === 'gemini' ? config.geminiApiKey : config.groqApiKey;
+    if (!activeKey?.trim()) {
+      setIsSettingsOpen(true);
+      return;
+    }
+
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      text,
+      timestamp: Date.now(),
+    };
+
+    const assistantMsg: Message = {
+      id: (Date.now() + 1).toString(),
+      role: 'model',
+      text: '',
+      timestamp: Date.now(),
+    };
+
+    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    setInputPrompt('');
+    setIsStreaming(true);
+    abortRef.current = false;
+
+    try {
+      const history = messages.slice(-12).map((m) => ({ role: m.role, text: m.text }));
+      const activeModeObj = ASSISTANT_MODES.find((m) => m.id === assistantMode);
+      const finalPrompt = assistantMode !== 'general' && activeModeObj
+        ? `[Mode Instruction: ${activeModeObj.prompt}]\n\n${text}`
+        : text;
+
+      await window.ghostAPI.sendMessage(finalPrompt, history);
+    } catch (err: any) {
+      setIsStreaming(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: 'model',
+          text: `⚠️ Error: ${err?.message || 'Failed to send'}`,
+          timestamp: Date.now(),
+          isError: true,
+        },
+      ]);
+    }
+  };
+
+  // Capture screen & analyze with Vision AI
+  const handleCaptureAndAnalyze = useCallback(
+    async (customPrompt?: string) => {
+      if (isStreaming) return;
+
+      const activeKey = config.provider === 'gemini' ? config.geminiApiKey : config.groqApiKey;
+      if (!activeKey?.trim()) {
+        setIsSettingsOpen(true);
+        return;
+      }
+
+      setCaptureStatus('capturing');
+      abortRef.current = false;
+
+      try {
+        const activeModeObj = ASSISTANT_MODES.find((m) => m.id === assistantMode);
+        const basePrompt = customPrompt || capturePrompt || 'Analyze this screen carefully. If there is a question, coding problem, error, or task — provide the direct, correct answer or solution. Be concise and structured.';
+        const finalPrompt = assistantMode !== 'general' && activeModeObj
+          ? `[Mode Instruction: ${activeModeObj.prompt}]\n\n${basePrompt}`
+          : basePrompt;
+
+        await window.ghostAPI.captureAndAnalyze(finalPrompt);
+      } catch (err: any) {
+        setIsStreaming(false);
+        setCaptureStatus('idle');
+      }
+    },
+    [isStreaming, config.provider, config.geminiApiKey, config.groqApiKey, capturePrompt, assistantMode]
+  );
+
+  const handleStopStream = () => {
+    abortRef.current = true;
+    setIsStreaming(false);
+    setCaptureStatus('idle');
+    // Mark the last model message as complete
+    setMessages((prev) => {
+      if (prev.length > 0 && prev[prev.length - 1].role === 'model' && prev[prev.length - 1].text === '') {
+        return [...prev.slice(0, -1)];
+      }
+      return prev;
+    });
+  };
+
+  const handleClearMessages = () => {
+    if (!isStreaming) setMessages([]);
+  };
+
+  const handleToggleGhostMode = async () => {
+    if (window.ghostAPI) {
+      const active = await window.ghostAPI.toggleGhostMode();
+      setIsGhostActive(active);
+    }
+  };
+
+  const handleTestKey = async () => {
+    const key = config.provider === 'gemini' ? config.geminiApiKey.trim() : config.groqApiKey.trim();
+    if (!key) return;
+    setTestStatus({ testing: true });
+    try {
+      const res = await window.ghostAPI.testApiKey(key, config.provider);
+      setTestStatus({ testing: false, success: res.success, error: res.error });
+    } catch (e: any) {
+      setTestStatus({ testing: false, success: false, error: e?.message });
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    if (window.ghostAPI) {
+      await window.ghostAPI.saveConfig(config);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+      setIsSettingsOpen(false);
+    }
+  };
+
+  const hasApiKey = config.provider === 'gemini' ? !!config.geminiApiKey?.trim() : !!config.groqApiKey?.trim();
+  const messageCount = messages.length;
+
+  return (
+    <div
+      className="w-full h-screen p-2 box-border flex flex-col font-sans select-none"
+      style={{ background: 'transparent', opacity: windowOpacity }}
+    >
+      {/* Main Glass Shell */}
+      <div className="w-full h-full flex flex-col rounded-2xl overflow-hidden transition-all duration-200"
+        style={{
+          background: 'rgba(10, 11, 16, 0.96)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          boxShadow: '0 24px 60px rgba(0,0,0,0.9), 0 0 0 0.5px rgba(255,255,255,0.05)',
+          backdropFilter: 'blur(24px)',
+        }}
+      >
+        {/* ── Top Bar / Drag Handle ── */}
+        <div
+          className="titlebar-drag-region shrink-0 h-12 px-3 flex items-center justify-between border-b"
+          style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.015)', position: 'relative', zIndex: 10 }}
+        >
+          {/* Left: Ghost Status Badge */}
+          <div className="flex items-center gap-2 no-drag">
+            <button
+              onClick={handleToggleGhostMode}
+              title={isGhostActive ? 'Ghost Shield Active — invisible in Zoom, Meet, OBS, Discord' : 'Ghost Mode Disabled — click to re-enable'}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all duration-200"
+              style={{
+                background: isGhostActive ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
+                border: `1px solid ${isGhostActive ? 'rgba(16,185,129,0.25)' : 'rgba(245,158,11,0.25)'}`,
+                color: isGhostActive ? '#34d399' : '#fbbf24',
+              }}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{
+                  background: isGhostActive ? '#34d399' : '#fbbf24',
+                  animation: isGhostActive ? 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' : 'none',
+                }}
+              />
+              {isGhostActive ? <Shield className="w-3 h-3" /> : <ShieldOff className="w-3 h-3" />}
+              <span>{isGhostActive ? 'Ghost Shield' : 'Visible'}</span>
+            </button>
+
+            {/* Click-Through Mode Toggle */}
+            <button
+              onClick={handleToggleClickThrough}
+              title={isClickThrough ? 'Click-Through ON — mouse clicks pass through to window behind (Ctrl+Shift+X)' : 'Enable Click-Through pass-through (Ctrl+Shift+X)'}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all duration-200"
+              style={{
+                background: isClickThrough ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${isClickThrough ? 'rgba(99,102,241,0.45)' : 'rgba(255,255,255,0.08)'}`,
+                color: isClickThrough ? '#a5b4fc' : 'rgba(255,255,255,0.4)',
+              }}
+            >
+              <MousePointer className="w-3 h-3" />
+              <span>{isClickThrough ? 'Pass-Thru ON' : 'Click-Thru'}</span>
+            </button>
+
+            {/* Model tag */}
+            <span
+              className="text-[10px] font-mono px-2 py-0.5 rounded"
+              style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.35)', border: '1px solid rgba(255,255,255,0.06)' }}
+            >
+              {config.provider === 'groq' ? `groq:${config.groqModel.split('-')[0]}` : config.model.split('-').slice(0, 2).join('-')}
+            </span>
+          </div>
+
+          {/* Center: Drag grip visual */}
+          <div className="absolute left-1/2 -translate-x-1/2 pointer-events-none">
+            <GripHorizontal className="w-4 h-4" style={{ color: 'rgba(255,255,255,0.12)' }} />
+          </div>
+
+          {/* Right: Window Controls */}
+          <div className="flex items-center gap-0.5 no-drag">
+            <button
+              onClick={() => setShowShortcuts((v) => !v)}
+              className="p-1.5 rounded-lg transition-colors"
+              style={{ color: 'rgba(255,255,255,0.3)' }}
+              title="Keyboard shortcuts"
+            >
+              <Info className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-1.5 rounded-lg transition-colors"
+              style={{ color: 'rgba(255,255,255,0.3)' }}
+              title="Settings & API Key"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className="p-1.5 rounded-lg transition-colors"
+              style={{ color: 'rgba(255,255,255,0.3)' }}
+              title={isCollapsed ? 'Expand' : 'Collapse to mini bar'}
+            >
+              {isCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <Minus className="w-3.5 h-3.5" />}
+            </button>
+            <button
+              onClick={() => window.ghostAPI?.minimizeWindow()}
+              className="p-1.5 rounded-lg transition-colors"
+              style={{ color: 'rgba(255,255,255,0.25)' }}
+              title="Hide Overlay (Ctrl+\ to restore)"
+            >
+              <EyeOff className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => window.ghostAPI?.closeWindow()}
+              className="p-1.5 rounded-lg transition-colors ml-1"
+              style={{ color: 'rgba(239,68,68,0.5)' }}
+              title="Quit App"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* ── Click-Through Notice Banner ── */}
+        {isClickThrough && !isCollapsed && (
+          <div
+            className="shrink-0 px-3 py-1.5 flex items-center justify-between text-[11px] border-b"
+            style={{
+              background: 'rgba(99,102,241,0.15)',
+              borderColor: 'rgba(99,102,241,0.3)',
+              color: '#c7d2fe',
+            }}
+          >
+            <div className="flex items-center gap-1.5">
+              <MousePointer className="w-3.5 h-3.5 text-indigo-400 animate-pulse shrink-0" />
+              <span><strong>Click-Through Active</strong> — Clicks pass to apps behind. Press <kbd className="px-1 py-0.2 rounded font-mono text-[10px]" style={{ background: 'rgba(99,102,241,0.35)', border: '1px solid rgba(99,102,241,0.5)' }}>Ctrl+Shift+X</kbd> to interact.</span>
+            </div>
+            <button
+              onClick={handleToggleClickThrough}
+              className="px-2 py-0.5 rounded text-[10px] font-medium transition-all"
+              style={{ background: 'rgba(99,102,241,0.3)', border: '1px solid rgba(99,102,241,0.45)' }}
+            >
+              Disable
+            </button>
+          </div>
+        )}
+
+        {/* ── Keyboard Shortcuts Panel ── */}
+        {showShortcuts && !isCollapsed && (
+          <div
+            className="shrink-0 px-4 py-3 border-b text-[11px]"
+            style={{ borderColor: 'rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.02)', color: 'rgba(255,255,255,0.5)' }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold" style={{ color: 'rgba(255,255,255,0.6)' }}>Keyboard Shortcuts</span>
+              <button onClick={() => setShowShortcuts(false)} style={{ color: 'rgba(255,255,255,0.3)' }}><X className="w-3 h-3" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+              {[
+                ['Ctrl+\\', 'Toggle show/hide'],
+                ['Ctrl+Shift+S', 'Capture & analyze screen'],
+                ['Ctrl+Shift+X', 'Toggle Click-Through mode'],
+                ['Ctrl+Shift+H', 'Stealth Panic Hide'],
+                ['Esc', 'Instant hide overlay'],
+                ['Enter', 'Send chat message'],
+              ].map(([key, desc]) => (
+                <div key={key} className="flex items-center gap-2">
+                  <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono" style={{ background: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.1)' }}>{key}</kbd>
+                  <span>{desc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Content Area (Hidden if Collapsed) ── */}
+        {!isCollapsed && (
+          <div className="flex-1 flex flex-col min-h-0">
+            {/* No API Key Warning */}
+            {!hasApiKey && (
+              <div
+                className="shrink-0 mx-3 mt-2.5 px-3 py-2.5 rounded-xl flex items-center gap-2.5 text-[11px]"
+                style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', color: '#fbbf24' }}
+              >
+                <Zap className="w-3.5 h-3.5 shrink-0" />
+                <div>
+                  <span className="font-semibold">API key required. </span>
+                  <button onClick={() => setIsSettingsOpen(true)} className="underline hover:text-amber-300">Open Settings</button>
+                  {' to add your free Gemini key.'}
+                </div>
+              </div>
+            )}
+
+            {/* ── Tab Navigation ── */}
+            <div
+              className="shrink-0 flex items-center gap-1 px-3 pt-2.5 pb-1.5"
+              style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+            >
+              {[
+                { id: 'chat' as const, label: 'Chat', icon: MessageSquare, badge: messageCount > 0 ? messageCount : null },
+                { id: 'capture' as const, label: 'Screen AI', icon: ScanLine },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-medium transition-all duration-150"
+                  style={{
+                    background: activeTab === tab.id ? 'rgba(59,130,246,0.15)' : 'transparent',
+                    color: activeTab === tab.id ? '#60a5fa' : 'rgba(255,255,255,0.35)',
+                    border: activeTab === tab.id ? '1px solid rgba(59,130,246,0.2)' : '1px solid transparent',
+                  }}
+                >
+                  <tab.icon className="w-3 h-3" />
+                  <span>{tab.label}</span>
+                  {tab.badge && (
+                    <span className="px-1 py-0 rounded text-[9px] font-semibold" style={{ background: 'rgba(59,130,246,0.3)', color: '#93c5fd' }}>
+                      {tab.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
+
+              {/* Export & Clear & Opacity */}
+              <div className="ml-auto flex items-center gap-2">
+                {messages.length > 0 && (
+                  <>
+                    <button
+                      onClick={handleExportSession}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] transition-colors"
+                      style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.08)' }}
+                      title="Export Session as Markdown"
+                    >
+                      <Download className="w-2.5 h-2.5" />
+                      <span>Export</span>
+                    </button>
+                    <button
+                      onClick={handleClearMessages}
+                      className="p-1 rounded text-white/30 hover:text-red-400 transition-colors"
+                      title="Clear Session Messages"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </>
+                )}
+                <div className="flex items-center gap-1.5 pl-1.5 border-l border-white/5">
+                  <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.2)' }}>Opacity</span>
+                  <input
+                    type="range"
+                    min="0.3"
+                    max="1"
+                    step="0.05"
+                    value={windowOpacity}
+                    onChange={(e) => setWindowOpacity(parseFloat(e.target.value))}
+                    className="w-14 h-1 appearance-none rounded cursor-pointer"
+                    style={{ accentColor: '#3b82f6' }}
+                    title={`Opacity: ${Math.round(windowOpacity * 100)}%`}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* ── Assistant Mode Selector Strip ── */}
+            <div
+              className="shrink-0 flex items-center justify-between px-3 py-1.5"
+              style={{ background: 'rgba(255,255,255,0.015)', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+            >
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] mr-1" style={{ color: 'rgba(255,255,255,0.25)' }}>Mode:</span>
+                {ASSISTANT_MODES.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => setAssistantMode(m.id)}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-all"
+                    style={{
+                      background: assistantMode === m.id ? 'rgba(59,130,246,0.18)' : 'transparent',
+                      color: assistantMode === m.id ? '#93c5fd' : 'rgba(255,255,255,0.4)',
+                      border: assistantMode === m.id ? '1px solid rgba(59,130,246,0.3)' : '1px solid transparent',
+                    }}
+                    title={m.prompt}
+                  >
+                    <span>{m.icon}</span>
+                    <span>{m.label}</span>
+                  </button>
+                ))}
+              </div>
+              {exportNotice && (
+                <span className="text-[10px] text-emerald-400 font-medium">{exportNotice}</span>
+              )}
+            </div>
+
+            {/* ── CHAT TAB ── */}
+            {activeTab === 'chat' && (
+              <div className="flex-1 flex flex-col min-h-0">
+                {/* Messages Feed */}
+                <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3"
+                  style={{ scrollbarWidth: 'none' }}
+                >
+                  {messages.length === 0 ? (
+                    <EmptyState onCapture={() => { setActiveTab('capture'); }} onOpenSettings={() => setIsSettingsOpen(true)} hasApiKey={hasApiKey} />
+                  ) : (
+                    messages.map((msg) => (
+                      <MessageBubble key={msg.id} msg={msg} />
+                    ))
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Input Bar */}
+                <div className="shrink-0 p-2.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  {/* Action bar */}
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <button
+                      onClick={() => { setActiveTab('capture'); }}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all"
+                      style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.2)' }}
+                      title="Go to Screen Capture tab"
+                    >
+                      <Camera className="w-3 h-3" />
+                      <span>Capture Screen</span>
+                      <span className="opacity-60 font-mono">Ctrl+⇧+S</span>
+                    </button>
+                    {messageCount > 0 && !isStreaming && (
+                      <button
+                        onClick={handleClearMessages}
+                        className="p-1 rounded-lg transition-colors ml-auto"
+                        style={{ color: 'rgba(239,68,68,0.4)' }}
+                        title="Clear conversation"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div
+                    className="flex items-center gap-1.5 rounded-xl px-2 py-1.5 transition-all"
+                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                  >
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      value={inputPrompt}
+                      onChange={(e) => setInputPrompt(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSendMessage();
+                        }
+                      }}
+                      placeholder={hasApiKey ? 'Ask anything...' : 'Set API key in Settings first...'}
+                      disabled={isStreaming || !hasApiKey}
+                      className="flex-1 bg-transparent text-xs outline-none px-1"
+                      style={{ color: 'rgba(255,255,255,0.85)', caretColor: '#3b82f6' }}
+                    />
+                    {isStreaming ? (
+                      <button
+                        onClick={handleStopStream}
+                        className="p-1.5 rounded-lg transition-all"
+                        style={{ background: 'rgba(239,68,68,0.15)', color: '#f87171' }}
+                        title="Stop generation"
+                      >
+                        <StopCircle className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleSendMessage}
+                        disabled={!inputPrompt.trim() || !hasApiKey}
+                        className="p-1.5 rounded-lg transition-all disabled:pointer-events-none"
+                        style={{
+                          background: inputPrompt.trim() && hasApiKey ? '#2563eb' : 'rgba(255,255,255,0.06)',
+                          color: inputPrompt.trim() && hasApiKey ? 'white' : 'rgba(255,255,255,0.2)',
+                        }}
+                        title="Send (Enter)"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── SCREEN CAPTURE TAB ── */}
+            {activeTab === 'capture' && (
+              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto px-3 py-3 space-y-3"
+                style={{ scrollbarWidth: 'none' }}
+              >
+                {/* Ghost Shield Status Card */}
+                <div
+                  className="rounded-xl p-3.5"
+                  style={{
+                    background: isGhostActive ? 'rgba(16,185,129,0.06)' : 'rgba(245,158,11,0.06)',
+                    border: `1px solid ${isGhostActive ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}`,
+                  }}
+                >
+                  <div className="flex items-center gap-2.5 mb-2">
+                    {isGhostActive ? (
+                      <Shield className="w-4 h-4" style={{ color: '#34d399' }} />
+                    ) : (
+                      <ShieldOff className="w-4 h-4" style={{ color: '#fbbf24' }} />
+                    )}
+                    <div>
+                      <div className="text-[12px] font-semibold" style={{ color: isGhostActive ? '#34d399' : '#fbbf24' }}>
+                        {isGhostActive ? '🛡️ True Ghost Mode Active' : '⚠️ Ghost Mode Disabled'}
+                      </div>
+                      <div className="text-[11px]" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                        {isGhostActive
+                          ? 'This window is 100% invisible in Zoom, Meet, Teams, OBS & Discord screen share'
+                          : 'This window is currently visible on screen share. Click Ghost Shield to re-enable.'}
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleToggleGhostMode}
+                      className="ml-auto px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all"
+                      style={{
+                        background: isGhostActive ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
+                        color: isGhostActive ? '#34d399' : '#fbbf24',
+                        border: `1px solid ${isGhostActive ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)'}`,
+                      }}
+                    >
+                      {isGhostActive ? 'Disable' : 'Enable'}
+                    </button>
+                  </div>
+                  <div
+                    className="text-[10px] font-mono px-2 py-1.5 rounded-lg"
+                    style={{ background: 'rgba(0,0,0,0.3)', color: 'rgba(255,255,255,0.35)' }}
+                  >
+                    Works via Windows/macOS OS-level display affinity API — not detectable by any app
+                  </div>
+                </div>
+
+                {/* Quick Capture Prompts */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-semibold" style={{ color: 'rgba(255,255,255,0.5)' }}>Quick Capture</span>
+                    <span className="text-[10px] font-mono" style={{ color: 'rgba(255,255,255,0.25)' }}>Ctrl+Shift+S</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {QUICK_PROMPTS.map((qp) => (
+                      <button
+                        key={qp.label}
+                        onClick={() => handleCaptureAndAnalyze(qp.prompt)}
+                        disabled={isStreaming || !hasApiKey}
+                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-left transition-all duration-150 active:scale-95 disabled:opacity-40"
+                        style={{
+                          background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(255,255,255,0.07)',
+                          color: 'rgba(255,255,255,0.7)',
+                        }}
+                      >
+                        <span className="text-base leading-none">{qp.icon}</span>
+                        <div>
+                          <div className="text-[11px] font-semibold">{qp.label}</div>
+                          <div className="text-[9px] mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                            {qp.prompt.slice(0, 32)}...
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Custom Prompt Capture */}
+                <div>
+                  <div className="text-[11px] font-semibold mb-2" style={{ color: 'rgba(255,255,255,0.5)' }}>Custom Prompt + Capture</div>
+                  <div
+                    className="flex items-center gap-2 rounded-xl px-3 py-2 transition-all"
+                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                  >
+                    <input
+                      ref={captureInputRef}
+                      type="text"
+                      value={capturePrompt}
+                      onChange={(e) => setCapturePrompt(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleCaptureAndAnalyze();
+                      }}
+                      placeholder="e.g. Find the bug in this code..."
+                      disabled={isStreaming || !hasApiKey}
+                      className="flex-1 bg-transparent text-xs outline-none"
+                      style={{ color: 'rgba(255,255,255,0.8)', caretColor: '#3b82f6' }}
+                    />
+                    <button
+                      onClick={() => handleCaptureAndAnalyze()}
+                      disabled={isStreaming || !hasApiKey}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-40"
+                      style={{ background: '#2563eb', color: 'white' }}
+                    >
+                      {captureStatus === 'capturing' ? (
+                        <><Loader2 className="w-3 h-3 animate-spin" /><span>Capturing</span></>
+                      ) : captureStatus === 'analyzing' ? (
+                        <><Loader2 className="w-3 h-3 animate-spin" /><span>Analyzing</span></>
+                      ) : (
+                        <><Camera className="w-3 h-3" /><span>Capture</span></>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Recent screenshots / results teaser */}
+                {messages.filter((m) => m.screenshotPreview).length > 0 && (
+                  <div>
+                    <div className="text-[11px] font-semibold mb-1.5" style={{ color: 'rgba(255,255,255,0.5)' }}>Recent Captures</div>
+                    <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+                      {messages.filter((m) => m.screenshotPreview).slice(-4).map((m) => (
+                        <button
+                          key={m.id}
+                          onClick={() => { setActiveTab('chat'); }}
+                          className="shrink-0 rounded-lg overflow-hidden border transition-all hover:opacity-80"
+                          style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+                          title="Click to view in chat"
+                        >
+                          <img
+                            src={m.screenshotPreview}
+                            alt="Capture"
+                            className="w-20 h-12 object-cover"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Collapsed Bar */}
+        {isCollapsed && (
+          <div className="flex items-center justify-center h-2">
+            <button
+              onClick={() => setIsCollapsed(false)}
+              className="flex items-center gap-1.5 text-[10px] transition-all"
+              style={{ color: 'rgba(255,255,255,0.25)' }}
+            >
+              <ChevronDown className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Settings Modal ── */}
+      {isSettingsOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setIsSettingsOpen(false); }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl p-5 space-y-4"
+            style={{
+              background: 'rgba(14,15,20,0.98)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              boxShadow: '0 32px 80px rgba(0,0,0,0.9)',
+            }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+              <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'white' }}>
+                <Settings className="w-4 h-4" style={{ color: '#3b82f6' }} />
+                Settings
+              </h3>
+              <button onClick={() => setIsSettingsOpen(false)} style={{ color: 'rgba(255,255,255,0.4)' }}>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Provider Switcher */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>AI Cloud Provider</label>
+              <div className="flex rounded-xl p-1" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, provider: 'gemini' })}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    config.provider === 'gemini'
+                      ? 'bg-blue-600 text-white shadow'
+                      : 'text-white/40 hover:text-white/70'
+                  }`}
+                >
+                  Google Gemini
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, provider: 'groq' })}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    config.provider === 'groq'
+                      ? 'bg-orange-600 text-white shadow'
+                      : 'text-white/40 hover:text-white/70'
+                  }`}
+                >
+                  Groq Cloud ⚡
+                </button>
+              </div>
+            </div>
+
+            {/* Provider-specific Key & Model */}
+            {config.provider === 'gemini' ? (
+              <>
+                {/* Gemini API Key */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                      Google Gemini API Key
+                    </label>
+                    <a
+                      href="https://aistudio.google.com/app/apikey"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] flex items-center gap-0.5 hover:underline"
+                      style={{ color: '#60a5fa' }}
+                    >
+                      Get free key <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  </div>
+                  <input
+                    type="password"
+                    value={config.geminiApiKey}
+                    onChange={(e) => setConfig({ ...config, geminiApiKey: e.target.value })}
+                    placeholder="AIzaSy..."
+                    className="w-full rounded-lg px-3 py-2 text-xs outline-none font-mono transition-all"
+                    style={{
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: 'white',
+                    }}
+                  />
+                  <div className="flex items-center justify-between pt-0.5">
+                    <button
+                      onClick={handleTestKey}
+                      disabled={!config.geminiApiKey.trim() || testStatus?.testing}
+                      className="text-[11px] px-2.5 py-1 rounded-lg transition-all disabled:opacity-40"
+                      style={{
+                        background: 'rgba(255,255,255,0.05)',
+                        color: 'rgba(255,255,255,0.6)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                      }}
+                    >
+                      {testStatus?.testing ? (
+                        <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Testing...</span>
+                      ) : 'Test Connection'}
+                    </button>
+                    {testStatus?.success === true && (
+                      <span className="text-[11px] flex items-center gap-1" style={{ color: '#34d399' }}>
+                        <Check className="w-3 h-3" /> Valid Gemini Key
+                      </span>
+                    )}
+                    {testStatus?.success === false && (
+                      <span className="text-[11px]" style={{ color: '#f87171' }}>Connection failed</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Gemini Model Selection */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>Gemini Model</label>
+                  <select
+                    value={config.model}
+                    onChange={(e) => setConfig({ ...config, model: e.target.value })}
+                    className="w-full rounded-lg px-2.5 py-2 text-xs outline-none font-mono cursor-pointer"
+                    style={{
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: 'white',
+                    }}
+                  >
+                    <option value="gemini-3.8-flash">gemini-3.8-flash — Fastest, Vision & Multimodal ⚡</option>
+                    <option value="gemini-2.0-flash">gemini-2.0-flash — Fast & Lightweight</option>
+                    <option value="gemini-2.5-pro">gemini-2.5-pro — Deep Reasoning</option>
+                  </select>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Groq API Key */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                      Groq API Key
+                    </label>
+                    <a
+                      href="https://console.groq.com/keys"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] flex items-center gap-0.5 hover:underline"
+                      style={{ color: '#fb923c' }}
+                    >
+                      Get free Groq key <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  </div>
+                  <input
+                    type="password"
+                    value={config.groqApiKey}
+                    onChange={(e) => setConfig({ ...config, groqApiKey: e.target.value })}
+                    placeholder="gsk_..."
+                    className="w-full rounded-lg px-3 py-2 text-xs outline-none font-mono transition-all"
+                    style={{
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: 'white',
+                    }}
+                  />
+                  <div className="flex items-center justify-between pt-0.5">
+                    <button
+                      onClick={handleTestKey}
+                      disabled={!config.groqApiKey.trim() || testStatus?.testing}
+                      className="text-[11px] px-2.5 py-1 rounded-lg transition-all disabled:opacity-40"
+                      style={{
+                        background: 'rgba(255,255,255,0.05)',
+                        color: 'rgba(255,255,255,0.6)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                      }}
+                    >
+                      {testStatus?.testing ? (
+                        <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Testing...</span>
+                      ) : 'Test Connection'}
+                    </button>
+                    {testStatus?.success === true && (
+                      <span className="text-[11px] flex items-center gap-1" style={{ color: '#34d399' }}>
+                        <Check className="w-3 h-3" /> Valid Groq Key
+                      </span>
+                    )}
+                    {testStatus?.success === false && (
+                      <span className="text-[11px]" style={{ color: '#f87171' }}>Connection failed</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Groq Model Selection */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>Groq Model</label>
+                  <select
+                    value={config.groqModel}
+                    onChange={(e) => setConfig({ ...config, groqModel: e.target.value })}
+                    className="w-full rounded-lg px-2.5 py-2 text-xs outline-none font-mono cursor-pointer"
+                    style={{
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: 'white',
+                    }}
+                  >
+                    <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile — Flagship Reasoning & Coding (300+ tok/s) ⚡</option>
+                    <option value="deepseek-r1-distill-llama-70b">deepseek-r1-distill-llama-70b — Deep Algorithmic Thinking 🧠</option>
+                    <option value="llama-3.1-8b-instant">llama-3.1-8b-instant — Ultra Instant & Lightweight 🚀</option>
+                    <option value="llama-3.2-11b-vision-preview">llama-3.2-11b-vision-preview — Vision & Screen Analysis 👁️</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            {/* Auto-Fallback Checkbox */}
+            <div
+              className="flex items-center gap-2 p-2.5 rounded-xl text-[11px]"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)' }}
+            >
+              <input
+                type="checkbox"
+                id="autoFallbackCheck"
+                checked={config.autoFallback}
+                onChange={(e) => setConfig({ ...config, autoFallback: e.target.checked })}
+                className="w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer"
+              />
+              <label htmlFor="autoFallbackCheck" className="cursor-pointer select-none">
+                <strong>Smart Fallback:</strong> If primary provider hits rate limits or quota, auto-fallback seamlessly without failing.
+              </label>
+            </div>
+
+            {/* System Instructions */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                System Instructions
+                <span className="ml-1.5 font-normal text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>optional</span>
+              </label>
+              <textarea
+                rows={3}
+                value={config.systemInstruction}
+                onChange={(e) => setConfig({ ...config, systemInstruction: e.target.value })}
+                placeholder="e.g. You are a senior software engineer. Answer concisely..."
+                className="w-full rounded-lg p-2.5 text-xs outline-none resize-none transition-all"
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  color: 'rgba(255,255,255,0.8)',
+                }}
+                onFocus={(e) => (e.target.style.borderColor = 'rgba(59,130,246,0.5)')}
+                onBlur={(e) => (e.target.style.borderColor = 'rgba(255,255,255,0.1)')}
+              />
+            </div>
+
+            {/* Ghost Mode Info Box */}
+            <div
+              className="p-3 rounded-xl text-[11px] leading-relaxed"
+              style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.15)', color: '#6ee7b7' }}
+            >
+              <strong>🛡️ True Ghost Display:</strong> This overlay uses OS-level hardware display affinity (Windows: <code className="text-[10px]">SetWindowDisplayAffinity</code>, macOS: <code className="text-[10px]">WDA_EXCLUDEFROMCAPTURE</code>). It is completely invisible to <strong>all</strong> screen capture software: Zoom, Google Meet, Microsoft Teams, OBS, Discord, and any recording tool.
+            </div>
+
+            {/* Save */}
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                onClick={() => setIsSettingsOpen(false)}
+                className="px-3 py-1.5 text-xs rounded-lg transition-colors"
+                style={{ color: 'rgba(255,255,255,0.4)' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveConfig}
+                className="px-4 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all"
+                style={{ background: '#2563eb', color: 'white' }}
+              >
+                {saveSuccess ? <Check className="w-3.5 h-3.5" /> : null}
+                <span>{saveSuccess ? 'Saved!' : 'Save Settings'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Sub-components ──
+
+const EmptyState: React.FC<{ onCapture: () => void; onOpenSettings: () => void; hasApiKey: boolean }> = ({
+  onCapture,
+  onOpenSettings,
+  hasApiKey,
+}) => (
+  <div className="h-full flex flex-col items-center justify-center text-center p-6 py-8">
+    <div
+      className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
+      style={{
+        background: 'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(99,102,241,0.1))',
+        border: '1px solid rgba(59,130,246,0.2)',
+        boxShadow: '0 8px 32px rgba(59,130,246,0.15)',
+      }}
+    >
+      <Sparkles className="w-7 h-7" style={{ color: '#60a5fa' }} />
+    </div>
+    <h3 className="text-sm font-semibold mb-1.5" style={{ color: 'white' }}>Ghost AI Ready</h3>
+    <p className="text-xs mb-5 leading-relaxed max-w-[260px]" style={{ color: 'rgba(255,255,255,0.4)' }}>
+      {hasApiKey
+        ? 'Completely invisible on screen share. Ask anything or capture your screen for instant AI analysis.'
+        : 'Add your free Gemini API key to get started. This overlay is invisible in all screen share apps.'}
+    </p>
+    {!hasApiKey ? (
+      <button
+        onClick={onOpenSettings}
+        className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all"
+        style={{ background: '#2563eb', color: 'white' }}
+      >
+        <Settings className="w-3.5 h-3.5" />
+        Add Gemini API Key
+      </button>
+    ) : (
+      <div className="flex flex-col gap-2 items-center">
+        <button
+          onClick={onCapture}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all"
+          style={{ background: '#2563eb', color: 'white' }}
+        >
+          <Camera className="w-3.5 h-3.5" />
+          Capture & Analyze Screen
+        </button>
+        <div className="flex flex-col gap-1 text-[11px] mt-2" style={{ color: 'rgba(255,255,255,0.3)' }}>
+          <div>
+            <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono mr-1.5" style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>Ctrl+\</kbd>
+            Toggle visibility
+          </div>
+          <div>
+            <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono mr-1.5" style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>Ctrl+Shift+S</kbd>
+            Instant capture
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+);
+
+const MessageBubble: React.FC<{ msg: Message }> = ({ msg }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(msg.text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (msg.role === 'user') {
+    return (
+      <div className="flex flex-col items-end gap-1.5">
+        {msg.screenshotPreview && (
+          <div
+            className="rounded-lg overflow-hidden max-w-[180px]"
+            style={{ border: '1px solid rgba(255,255,255,0.08)' }}
+          >
+            <img src={msg.screenshotPreview} alt="Screen capture" className="w-full h-auto object-cover max-h-28" />
+          </div>
+        )}
+        <div
+          className="px-3 py-1.5 rounded-2xl rounded-tr-sm text-xs max-w-[85%] break-words"
+          style={{
+            background: 'rgba(37,99,235,0.2)',
+            border: '1px solid rgba(59,130,246,0.25)',
+            color: '#bfdbfe',
+          }}
+        >
+          {msg.text}
+        </div>
+      </div>
+    );
+  }
+
+  // Model message
+  return (
+    <div className="flex flex-col items-start">
+      <div
+        className="relative group text-xs w-full max-w-full rounded-2xl rounded-tl-sm px-3.5 py-2.5"
+        style={{
+          background: msg.isError ? 'rgba(239,68,68,0.07)' : 'rgba(255,255,255,0.03)',
+          border: `1px solid ${msg.isError ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.07)'}`,
+          color: 'rgba(255,255,255,0.85)',
+        }}
+      >
+        {msg.text ? (
+          <>
+            <MarkdownRenderer content={msg.text} />
+            <div
+              className="mt-2 pt-1.5 flex justify-end opacity-0 group-hover:opacity-100 transition-opacity"
+              style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
+            >
+              <button
+                onClick={handleCopy}
+                className="flex items-center gap-1 text-[10px] transition-colors"
+                style={{ color: 'rgba(255,255,255,0.3)' }}
+              >
+                {copied ? <Check className="w-3 h-3" style={{ color: '#34d399' }} /> : <Copy className="w-3 h-3" />}
+                <span>{copied ? 'Copied!' : 'Copy'}</span>
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="flex items-center gap-2 py-1" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: '#3b82f6' }} />
+            <span className="text-[11px] font-mono">Gemini is analyzing...</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default App;

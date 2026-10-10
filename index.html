@@ -1,40 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="background: transparent;">
 
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="google-site-verification" content="j8eq-Lj1onJN7wj-wOgZ1EPlIiEzvDfY_X_fkmdkUyw" />
-  <title>Natively</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <title>Ghost AI Copilot</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; img-src 'self' data: https:; connect-src 'self' https: http://localhost:*; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;">
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https: http://localhost:*; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;">
 </head>
 
-<body style="background-color: #000000; margin: 0; overflow: hidden;">
-  <div id="root"></div>
+<body style="background: transparent; margin: 0; padding: 0; overflow: hidden; user-select: none;">
+  <div id="root" style="background: transparent;"></div>
   <script type="module" src="/src/main.tsx"></script>
-  <script>
-    // Root-cause fix 2026-04-23: Chromium socket pool exhaustion on cold start
-    // with Vite dev server (ERR_INSUFFICIENT_RESOURCES on dep chunks) leaves root
-    // empty → black screen. Auto-recover by reloading once if React hasn't mounted.
-    (function () {
-      var recovered = sessionStorage.getItem('__natively_recover') === '1';
-      setTimeout(function () {
-        var root = document.getElementById('root');
-        if (!root || root.children.length === 0) {
-          if (!recovered) {
-            sessionStorage.setItem('__natively_recover', '1');
-            location.reload();
-          } else {
-            console.error('[auto-recover] root still empty after reload — upstream issue');
-          }
-        } else {
-          sessionStorage.removeItem('__natively_recover');
-        }
-      }, 1800);
-    })();
-  </script>
 </body>
 
 </html>

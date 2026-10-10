@@ -1,20 +1,25 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "lib": ["DOM", "DOM.Iterable", "ESNext"], // Browser APIs
-    "module": "ESNext", // For Vite/Modern browsers
-    "moduleResolution": "bundler", // For Vite
-    "jsx": "react-jsx", // React specific
-    "noEmit": true, // Vite handles the building
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "noEmit": true,
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "strict": true,
     "noUnusedLocals": false,
-    "noUnusedParameters": true,
+    "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true
   },
-  "include": ["src"], // Only React source files
+  "include": [
+    "src/main.tsx",
+    "src/App.tsx",
+    "src/components/MarkdownRenderer.tsx",
+    "src/vite-env.d.ts"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

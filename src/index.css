@@ -258,3 +258,54 @@ a:hover,
 .animate-shine {
   animation: shine 2s infinite;
 }
+
+/* Ghost AI Overlay specific additions */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Hide scrollbars globally for ghost overlay */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Custom range slider for opacity control */
+input[type="range"] {
+  -webkit-appearance: none;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.1);
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #3b82f6;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  background: #60a5fa;
+}
+
+/* Selection color in message text */
+::selection {
+  background: rgba(59, 130, 246, 0.3);
+  color: white;
+}
+
+/* Ghost titlebar fixed drag */
+.titlebar-drag-region {
+  -webkit-app-region: drag;
+  position: relative;
+  z-index: 10;
+  cursor: default;
+  height: auto;
+}
