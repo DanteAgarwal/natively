@@ -19,6 +19,7 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: dark;
   /* System Fonts - SF Pro */
   --font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
 
@@ -308,4 +309,46 @@ input[type="range"]::-webkit-slider-thumb:hover {
   z-index: 10;
   cursor: default;
   height: auto;
-}
+}
+
+/* Ensure all buttons, controls, and marked containers are fully clickable in drag regions */
+.no-drag,
+.titlebar-drag-region button,
+.titlebar-drag-region input,
+.titlebar-drag-region select,
+.titlebar-drag-region kbd,
+button,
+input,
+select,
+textarea {
+  -webkit-app-region: no-drag;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Native Dropdown & Select Contrast Fix (Windows Chromium)
+   ───────────────────────────────────────────────────────────── */
+select {
+  color-scheme: dark !important;
+  background-color: #18181b !important;
+  color: #f4f4f5 !important;
+}
+
+select option {
+  background-color: #18181b !important;
+  color: #f4f4f5 !important;
+  padding: 8px 12px !important;
+}
+
+select option:checked,
+select option:hover,
+select option:focus {
+  background-color: #27272a !important;
+  color: #60a5fa !important;
+}
+
+select optgroup {
+  background-color: #18181b !important;
+  color: #a1a1aa !important;
+  font-weight: 600 !important;
+}
+

@@ -5,15 +5,16 @@
   "description": "Natively is a meeting notes app that uses AI to generate notes from your meetings.",
   "scripts": {
     "clean": "rimraf dist dist-electron",
-    "dev": "vite",
+    "dev": "npm run app:dev",
+    "dev:ui": "vite --port 5180",
+    "app:dev": "concurrently -k \"vite --port 5180\" \"wait-on http://localhost:5180 && npm run electron:dev\"",
+    "start": "npm run app:dev",
     "build:electron": "tsc -p electron/tsconfig.json",
     "build:ui": "vite build",
     "build": "npm run build:electron && npm run build:ui",
     "preview": "vite preview",
     "electron:dev": "npm run build:electron && cross-env NODE_ENV=development electron .",
     "electron:build": "npm run build:electron && cross-env NODE_ENV=production electron .",
-    "app:dev": "concurrently \"npm run dev -- --port 5180\" \"wait-on http://localhost:5180 && npm run electron:dev\"",
-    "start": "npm run app:dev",
     "dist": "npm run build && electron-builder"
   },
   "build": {
@@ -24,10 +25,7 @@
       "dist/**/*",
       "dist-electron/**/*",
       "package.json",
-      "node_modules/**/*",
-      "!**/native-module/target/**",
-      "!**/native-module/src/**",
-      "!**/native-module/.cargo/**"
+      "node_modules/**/*"
     ],
     "directories": {
       "output": "release",

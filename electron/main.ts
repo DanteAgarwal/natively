@@ -2,6 +2,8 @@ import { app, BrowserWindow, globalShortcut, ipcMain, screen, Tray, Menu, native
 import path from 'path';
 import { geminiService, ChatMessage } from './geminiService';
 import { groqService } from './groqService';
+import { openrouterService } from './openrouterService';
+import { routerService } from './routerService';
 import { captureScreen } from './screenshotService';
 import { configService } from './storeService';
 
@@ -69,12 +71,35 @@ function createGhostWindow(): BrowserWindow {
 
   if (isDev) {
     win.loadURL('http://localhost:5180').catch(() => {
-      win.loadFile(path.join(__dirname, '../dist/index.html')).catch((e) => {
-        console.error('Could not load app from either dev server or dist:', e);
+      console.warn('[Ghost Copilot] Dev server at http://localhost:5180 not reachable. Attempting fallback to dist/index.html...');
+      win.loadFile(path.join(__dirname, '../dist/index.html')).catch(() => {
+        const fallbackHtml = `
+          <!DOCTYPE html>
+          <html>
+            <head><meta charset="UTF-8"><title>Ghost Copilot</title></head>
+            <body style="background:#18181b;color:#e4e4e7;font-family:Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;padding:20px;box-sizing:border-box;text-align:center;">
+              <div style="background:#27272a;border:1px solid #3f3f46;border-radius:12px;padding:24px;max-width:420px;box-shadow:0 16px 40px rgba(0,0,0,0.6);">
+                <div style="font-size:32px;margin-bottom:8px;">⚡</div>
+                <h3 style="margin:0 0 8px;color:#f87171;">Vite Dev Server Offline</h3>
+                <p style="font-size:12px;line-height:1.5;color:#a1a1aa;margin:0 0 16px;">
+                  Could not connect to <code>http://localhost:5180</code> and no built <code>dist/index.html</code> was found.
+                </p>
+                <div style="background:#18181b;padding:10px;border-radius:8px;font-size:12px;color:#38bdf8;font-family:Consolas,monospace;margin-bottom:16px;">
+                  npm start
+                </div>
+                <p style="font-size:11px;color:#71717a;margin:0 0 16px;">
+                  Running <code>npm start</code> starts both Vite and Electron together automatically.
+                </p>
+                <button onclick="location.reload()" style="background:#3b82f6;color:white;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;">
+                  Retry
+                </button>
+              </div>
+            </body>
+          </html>
+        `;
+        win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(fallbackHtml)}`);
       });
     });
-    // Open DevTools detached (does NOT appear in screen share either)
-    // win.webContents.openDevTools({ mode: 'detach' });
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html')).catch((e) => {
       console.error('Failed to load dist/index.html:', e);
@@ -119,6 +144,11 @@ function createTray(): void {
         label: 'Capture & Analyze Screen',
         accelerator: 'CmdOrCtrl+Shift+S',
         click: () => triggerCapture(),
+      },
+      {
+        label: 'Push-to-Listen (Voice)',
+        accelerator: 'F9 / CmdOrCtrl+Shift+L',
+        click: () => triggerListen(),
       },
       {
         label: `Click-Through: ${isClickThroughActive ? 'ON (Pass-through)' : 'OFF'}`,
@@ -203,6 +233,15 @@ function triggerCapture(): void {
   }, 100);
 }
 
+function triggerListen(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  mainWindow.webContents.send('ghost:trigger-listen-hotkey');
+}
+
 function registerGlobalHotkeys(): void {
   globalShortcut.unregisterAll();
 
@@ -211,6 +250,18 @@ function registerGlobalHotkeys(): void {
 
   // Capture & analyze: Ctrl+Shift+S
   globalShortcut.register('CommandOrControl+Shift+S', triggerCapture);
+
+  // Push-to-Listen (Voice STT): Ctrl+Shift+L and F9
+  try {
+    globalShortcut.register('CommandOrControl+Shift+L', triggerListen);
+  } catch (err) {
+    console.warn('Failed to register Ctrl+Shift+L hotkey:', err);
+  }
+  try {
+    globalShortcut.register('F9', triggerListen);
+  } catch (err) {
+    console.warn('Failed to register F9 hotkey:', err);
+  }
 
   // Toggle click-through: Ctrl+Shift+X
   globalShortcut.register('CommandOrControl+Shift+X', () => {
@@ -223,8 +274,10 @@ function registerGlobalHotkeys(): void {
   });
 }
 
+let currentStreamAbort = false;
+
 // ─────────────────────────────────────────────────────────────
-// Unified AI Dispatcher (Gemini & Groq with Auto-Fallback)
+// Unified AI Dispatcher (Gemini, Groq, OpenRouter & Universal Router with Auto-Fallback)
 // ─────────────────────────────────────────────────────────────
 async function streamAiResponse(params: {
   prompt: string;
@@ -235,25 +288,78 @@ async function streamAiResponse(params: {
   const config = configService.getConfig();
   const primaryProvider = config.provider || 'gemini';
 
-  const runProvider = async (provider: 'gemini' | 'groq') => {
-    if (provider === 'groq') {
-      return await groqService.streamGenerate(params);
+  const streamParams = {
+    ...params,
+    isAborted: () => currentStreamAbort,
+  };
+
+  // Screen capture & vision handling:
+  // If Groq is primary (pure text inference) and an image is attached, route vision to OpenRouter or Gemini
+  if (params.imageBase64 && primaryProvider === 'groq') {
+    const geminiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
+    const openrouterKey = config.openrouterApiKey || process.env.OPENROUTER_API_KEY;
+
+    if (geminiKey?.trim()) {
+      params.onChunk(`> ℹ️ *Groq is active for text. Routing screen capture to Gemini Vision...*\n\n`);
+      return await geminiService.streamGenerate(streamParams);
+    } else if (openrouterKey?.trim()) {
+      params.onChunk(`> ℹ️ *Groq is active for text. Routing screen capture to OpenRouter Free Vision...*\n\n`);
+      return await openrouterService.streamGenerate(streamParams);
     } else {
-      return await geminiService.streamGenerate(params);
+      throw new Error(
+        'Groq currently does not support screen/image analysis. ' +
+        'Please add a free OpenRouter key or Gemini key in Settings to enable screen vision analysis.'
+      );
+    }
+  }
+
+  const runProvider = async (provider: 'gemini' | 'groq' | 'openrouter' | 'router') => {
+    if (provider === 'groq') {
+      return await groqService.streamGenerate(streamParams);
+    } else if (provider === 'openrouter') {
+      return await openrouterService.streamGenerate(streamParams);
+    } else if (provider === 'router') {
+      return await routerService.streamGenerate(streamParams);
+    } else {
+      return await geminiService.streamGenerate(streamParams);
     }
   };
 
   try {
     return await runProvider(primaryProvider);
   } catch (primaryErr: any) {
+    if (currentStreamAbort) {
+      return '';
+    }
     if (config.autoFallback) {
-      const fallbackProvider = primaryProvider === 'gemini' ? 'groq' : 'gemini';
-      const fallbackKey = fallbackProvider === 'gemini' ? config.geminiApiKey : config.groqApiKey;
+      // Find candidate fallback providers that have valid credentials or are zero-key
+      const fallbackOptions: Array<'gemini' | 'groq' | 'openrouter' | 'router'> = [
+        'openrouter',
+        'gemini',
+        'groq',
+        'router',
+      ].filter((p) => p !== primaryProvider) as any;
 
-      if (fallbackKey?.trim()) {
-        const errorSummary = primaryErr?.message || 'Provider failed';
-        params.onChunk(`\n\n> ⚠️ *${primaryProvider.toUpperCase()} error: ${errorSummary}. Auto-falling back to ${fallbackProvider.toUpperCase()}...*\n\n`);
-        return await runProvider(fallbackProvider);
+      for (const fallbackProvider of fallbackOptions) {
+        const hasKey =
+          fallbackProvider === 'gemini'
+            ? !!config.geminiApiKey?.trim()
+            : fallbackProvider === 'groq'
+            ? !!config.groqApiKey?.trim()
+            : fallbackProvider === 'openrouter'
+            ? !!config.openrouterApiKey?.trim()
+            : (config.routerPreset === 'pollinations' || !!config.routerBaseUrl?.trim());
+
+        if (hasKey) {
+          const errorSummary = primaryErr?.message || 'Primary provider failed';
+          params.onChunk(`\n\n> ⚠️ *${primaryProvider.toUpperCase()} error: ${errorSummary}. Auto-falling back to ${fallbackProvider.toUpperCase()}...*\n\n`);
+          try {
+            return await runProvider(fallbackProvider);
+          } catch (fallbackErr) {
+            console.warn(`[Dispatcher] Fallback provider ${fallbackProvider} also failed:`, fallbackErr);
+            // Continue to next fallback in list
+          }
+        }
       }
     }
     throw primaryErr;
@@ -272,17 +378,19 @@ function setupIpcHandlers(): void {
       return;
     }
 
+    currentStreamAbort = false;
+
     try {
       await streamAiResponse({
         prompt,
         history,
         onChunk: (chunk) => {
-          if (!webContents.isDestroyed()) webContents.send('ghost:stream-chunk', chunk);
+          if (!webContents.isDestroyed() && !currentStreamAbort) webContents.send('ghost:stream-chunk', chunk);
         },
       });
       if (!webContents.isDestroyed()) webContents.send('ghost:stream-end');
     } catch (err: any) {
-      if (!webContents.isDestroyed()) {
+      if (!webContents.isDestroyed() && !currentStreamAbort) {
         webContents.send('ghost:stream-error', err?.message || 'Chat generation failed');
       }
     }
@@ -293,6 +401,8 @@ function setupIpcHandlers(): void {
     const webContents = event.sender;
     const finalPrompt = prompt?.trim() ||
       'Analyze this screen carefully. If there is a question, coding problem, error, or task — provide the direct, correct answer or solution. Be concise and structured.';
+
+    currentStreamAbort = false;
 
     try {
       // Hide window briefly, capture, then restore
@@ -311,7 +421,7 @@ function setupIpcHandlers(): void {
         prompt: finalPrompt,
         imageBase64: screenshot.base64,
         onChunk: (chunk) => {
-          if (!webContents.isDestroyed()) webContents.send('ghost:stream-chunk', chunk);
+          if (!webContents.isDestroyed() && !currentStreamAbort) webContents.send('ghost:stream-chunk', chunk);
         },
       });
 
@@ -320,10 +430,52 @@ function setupIpcHandlers(): void {
       return { previewUrl: screenshot.previewUrl };
     } catch (err: any) {
       const message = err?.message || 'Screen capture or analysis failed';
-      if (!webContents.isDestroyed()) {
+      if (!webContents.isDestroyed() && !currentStreamAbort) {
         webContents.send('ghost:stream-error', message);
       }
       // Don't rethrow — error already handled via IPC
+    }
+  });
+
+  // ── 2.5 Stop Stream Abort ──
+  ipcMain.handle('ghost:stop-stream', () => {
+    currentStreamAbort = true;
+    return true;
+  });
+
+  // ── 2.8 Push-to-Listen Audio Speech-to-Text ──
+  ipcMain.handle('ghost:transcribe-audio', async (_event, { audioBase64, mimeType }: { audioBase64: string; mimeType?: string }) => {
+    if (!audioBase64?.trim()) {
+      return { success: false, text: '', error: 'No audio captured' };
+    }
+
+    try {
+      const buffer = Buffer.from(audioBase64, 'base64');
+      const config = configService.getConfig();
+      const hasGroqKey = !!(config.groqApiKey || process.env.GROQ_API_KEY)?.trim();
+      const hasGeminiKey = !!(config.geminiApiKey || process.env.GEMINI_API_KEY)?.trim();
+
+      if (hasGroqKey) {
+        try {
+          const text = await groqService.transcribeAudio(buffer, mimeType || 'audio/webm');
+          return { success: true, text, engine: 'groq-whisper' };
+        } catch (groqErr: any) {
+          console.warn('[Voice] Groq Whisper failed, trying Gemini if available:', groqErr?.message || groqErr);
+          if (hasGeminiKey) {
+            const text = await geminiService.transcribeAudio(buffer, mimeType || 'audio/webm');
+            return { success: true, text, engine: 'gemini-speech' };
+          }
+          throw groqErr;
+        }
+      } else if (hasGeminiKey) {
+        const text = await geminiService.transcribeAudio(buffer, mimeType || 'audio/webm');
+        return { success: true, text, engine: 'gemini-speech' };
+      } else {
+        throw new Error('Please configure a free Groq API key or Gemini API key in Settings to use Push-to-Listen voice transcription.');
+      }
+    } catch (err: any) {
+      console.error('[Voice] Transcription error:', err);
+      return { success: false, text: '', error: err?.message || 'Speech-to-text transcription failed.' };
     }
   });
 
@@ -336,13 +488,22 @@ function setupIpcHandlers(): void {
     return configService.setConfig(newConfig);
   });
 
-  ipcMain.handle('ghost:test-api-key', async (_event, payload: string | { apiKey: string; provider?: 'gemini' | 'groq' }) => {
+  ipcMain.handle('ghost:test-api-key', async (_event, payload: string | { apiKey: string; provider?: 'gemini' | 'groq' | 'openrouter' | 'router'; baseUrl?: string; model?: string }) => {
     const apiKey = typeof payload === 'string' ? payload : payload?.apiKey;
     const provider = typeof payload === 'object' ? payload?.provider : 'gemini';
-    if (!apiKey?.trim()) return { success: false, error: 'No API key provided' };
+    const baseUrl = typeof payload === 'object' ? payload?.baseUrl : undefined;
+    const model = typeof payload === 'object' ? payload?.model : undefined;
+
     if (provider === 'groq') {
+      if (!apiKey?.trim()) return { success: false, error: 'No Groq API key provided' };
       return groqService.testApiKey(apiKey.trim());
+    } else if (provider === 'openrouter') {
+      if (!apiKey?.trim()) return { success: false, error: 'No OpenRouter API key provided' };
+      return openrouterService.testApiKey(apiKey.trim());
+    } else if (provider === 'router') {
+      return routerService.testEndpoint({ baseUrl, apiKey, model });
     }
+    if (!apiKey?.trim()) return { success: false, error: 'No Gemini API key provided' };
     return geminiService.testApiKey(apiKey.trim());
   });
 
@@ -371,6 +532,12 @@ function setupIpcHandlers(): void {
 
   ipcMain.handle('ghost:toggle-click-through', () => {
     return toggleClickThrough();
+  });
+
+  ipcMain.handle('ghost:set-ignore-mouse-events', (_event, ignore: boolean, options?: { forward?: boolean }) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setIgnoreMouseEvents(ignore, options);
+    }
   });
 
   // ── 7. Session Export (Markdown/Text) ──
@@ -430,10 +597,10 @@ if (!gotTheLock) {
     // Suppress the default app menu (reduces footprint)
     Menu.setApplicationMenu(null);
 
+    setupIpcHandlers();
     mainWindow = createGhostWindow();
     createTray();
     registerGlobalHotkeys();
-    setupIpcHandlers();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {

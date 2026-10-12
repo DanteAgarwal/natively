@@ -19,8 +19,9 @@ export default defineConfig({
         rollupOptions: {
             output: {
                 manualChunks: {
-                    vendor: ['react', 'react-dom', 'framer-motion'],
-                    ui: ['lucide-react', '@radix-ui/react-dialog', '@radix-ui/react-toast']
+                    vendor: ['react', 'react-dom'],
+                    markdown: ['react-markdown', 'remark-gfm', 'react-syntax-highlighter'],
+                    icons: ['lucide-react']
                 }
             }
         }

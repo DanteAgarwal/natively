@@ -28,6 +28,9 @@ import {
   Briefcase,
   Code,
   FileText,
+  Mic,
+  MicOff,
+  Radio,
 } from 'lucide-react';
 import { MarkdownRenderer } from './components/MarkdownRenderer';
 
@@ -41,9 +44,15 @@ interface Message {
 }
 
 interface AppConfig {
-  provider: 'gemini' | 'groq';
+  provider: 'gemini' | 'groq' | 'openrouter' | 'router';
   geminiApiKey: string;
   groqApiKey: string;
+  openrouterApiKey: string;
+  openrouterModel: string;
+  routerPreset: string;
+  routerBaseUrl: string;
+  routerApiKey: string;
+  routerModel: string;
   systemInstruction: string;
   model: string;
   groqModel: string;
@@ -89,6 +98,12 @@ const App: React.FC = () => {
     provider: 'gemini',
     geminiApiKey: '',
     groqApiKey: '',
+    openrouterApiKey: '',
+    openrouterModel: 'openrouter/free',
+    routerPreset: 'pollinations',
+    routerBaseUrl: 'https://text.pollinations.ai/openai',
+    routerApiKey: '',
+    routerModel: 'openai',
     systemInstruction: '',
     model: 'gemini-3.8-flash',
     groqModel: 'llama-3.3-70b-versatile',
@@ -100,6 +115,14 @@ const App: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [captureStatus, setCaptureStatus] = useState<'idle' | 'capturing' | 'analyzing'>('idle');
 
+  // Push-to-Listen voice state
+  const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const toggleListeningRef = useRef<() => void>(() => {});
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const captureInputRef = useRef<HTMLInputElement>(null);
@@ -110,8 +133,21 @@ const App: React.FC = () => {
     if (window.ghostAPI) {
       window.ghostAPI.getConfig().then((cfg) => {
         if (cfg) {
-          if (cfg.model === 'gemini-2.5-flash') {
+          const obsoleteGemini = [
+            'gemini-2.5-flash',
+            'gemini-2.0-flash',
+            'gemini-2.5-pro',
+            'gemini-2.5-flash-lite',
+            'gemini-1.5-flash',
+            'gemini-1.5-pro',
+            'gemini-3-flash-preview',
+          ];
+          if (obsoleteGemini.includes(cfg.model)) {
             cfg.model = 'gemini-3.8-flash';
+          }
+          const obsoleteGroq = ['llama-3.1-8b-instant', 'llama-3.2-11b-vision-preview', 'deepseek-r1-distill-llama-70b'];
+          if (obsoleteGroq.includes(cfg.groqModel)) {
+            cfg.groqModel = 'llama-3.3-70b-versatile';
           }
           setConfig((prev) => ({ ...prev, ...cfg }));
         }
@@ -123,19 +159,40 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!window.ghostAPI) return;
 
-    const unsubChunk = window.ghostAPI.onStreamChunk((chunk) => {
-      if (abortRef.current) return;
+    let buffer = '';
+    let rafTimer: number | null = null;
+
+    const flushChunkBuffer = () => {
+      if (!buffer) return;
+      const incoming = buffer;
+      buffer = '';
       setMessages((prev) => {
         if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
         if (last.role === 'model') {
-          return [...prev.slice(0, -1), { ...last, text: last.text + chunk }];
+          return [...prev.slice(0, -1), { ...last, text: last.text + incoming }];
         }
         return prev;
       });
+    };
+
+    const unsubChunk = window.ghostAPI.onStreamChunk((chunk) => {
+      if (abortRef.current) return;
+      buffer += chunk;
+      if (!rafTimer) {
+        rafTimer = requestAnimationFrame(() => {
+          flushChunkBuffer();
+          rafTimer = null;
+        });
+      }
     });
 
     const unsubEnd = window.ghostAPI.onStreamEnd(() => {
+      if (rafTimer) {
+        cancelAnimationFrame(rafTimer);
+        rafTimer = null;
+      }
+      flushChunkBuffer();
       setIsStreaming(false);
       setCaptureStatus('idle');
       abortRef.current = false;
@@ -145,16 +202,30 @@ const App: React.FC = () => {
       setIsStreaming(false);
       setCaptureStatus('idle');
       abortRef.current = false;
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: 'model',
-          text: `⚠️ **Error**: ${err}`,
-          timestamp: Date.now(),
-          isError: true,
-        },
-      ]);
+      setMessages((prev) => {
+        if (prev.length > 0 && prev[prev.length - 1].role === 'model' && prev[prev.length - 1].text === '') {
+          return [
+            ...prev.slice(0, -1),
+            {
+              id: prev[prev.length - 1].id,
+              role: 'model',
+              text: `⚠️ **Error**: ${err}`,
+              timestamp: Date.now(),
+              isError: true,
+            },
+          ];
+        }
+        return [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: 'model',
+            text: `⚠️ **Error**: ${err}`,
+            timestamp: Date.now(),
+            isError: true,
+          },
+        ];
+      });
     });
 
     const unsubScreenshot = window.ghostAPI.onScreenshotCaptured(({ previewUrl, prompt }) => {
@@ -184,6 +255,10 @@ const App: React.FC = () => {
       handleCaptureAndAnalyze();
     });
 
+    const unsubHotkeyListen = window.ghostAPI.onTriggerListen?.(() => {
+      toggleListeningRef.current();
+    });
+
     const unsubClickThrough = window.ghostAPI.onClickThroughToggled((active) => {
       setIsClickThrough(active);
     });
@@ -192,6 +267,7 @@ const App: React.FC = () => {
       setIsStreaming(false);
       setCaptureStatus('idle');
       abortRef.current = true;
+      window.ghostAPI?.stopStream();
     });
 
     return () => {
@@ -200,15 +276,25 @@ const App: React.FC = () => {
       unsubError();
       unsubScreenshot();
       unsubHotkeyCapture();
+      unsubHotkeyListen?.();
       unsubClickThrough();
       unsubPanic();
     };
   }, []);
 
-  // Emergency Escape / Panic key handler
+  // Emergency Escape / Panic & Push-to-Listen key handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F9' || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'l')) {
+        e.preventDefault();
+        toggleListeningRef.current();
+        return;
+      }
       if (e.key === 'Escape') {
+        if (isListening) {
+          stopListening();
+          return;
+        }
         if (isSettingsOpen) {
           setIsSettingsOpen(false);
         } else if (showShortcuts) {
@@ -220,7 +306,7 @@ const App: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSettingsOpen, showShortcuts]);
+  }, [isSettingsOpen, showShortcuts, isListening]);
 
   // Auto-scroll when messages update
   useEffect(() => {
@@ -272,13 +358,12 @@ const App: React.FC = () => {
     }
   };
 
-  // Send a regular text message
-  const handleSendMessage = async () => {
-    const text = inputPrompt.trim();
+  // Core AI Prompt Dispatcher (used by both text input and voice STT)
+  const executePrompt = async (textToSend: string) => {
+    const text = textToSend.trim();
     if (!text || isStreaming) return;
 
-    const activeKey = config.provider === 'gemini' ? config.geminiApiKey : config.groqApiKey;
-    if (!activeKey?.trim()) {
+    if (!hasApiKey) {
       setIsSettingsOpen(true);
       return;
     }
@@ -325,13 +410,137 @@ const App: React.FC = () => {
     }
   };
 
+  // Send a regular text message
+  const handleSendMessage = async () => {
+    executePrompt(inputPrompt);
+  };
+
+  // ── Push-to-Listen Audio Recording & Speech-to-Text ──
+  const startListening = async () => {
+    if (isListening || isTranscribing) return;
+    try {
+      audioChunksRef.current = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.start(100);
+      setIsListening(true);
+    } catch (err: any) {
+      console.error('Failed to access microphone:', err);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: 'model',
+          text: `⚠️ Microphone Error: ${err?.message || 'Could not access microphone. Please check permissions.'}`,
+          timestamp: Date.now(),
+          isError: true,
+        },
+      ]);
+    }
+  };
+
+  const stopListening = () => {
+    if (!mediaRecorderRef.current || !isListening) return;
+
+    const recorder = mediaRecorderRef.current;
+    setIsListening(false);
+
+    recorder.onstop = async () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+
+      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+      if (audioBlob.size < 400) {
+        return;
+      }
+
+      setIsTranscribing(true);
+
+      try {
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const resultStr = reader.result as string;
+          const base64Data = resultStr ? resultStr.split(',')[1] : null;
+          if (!base64Data) {
+            setIsTranscribing(false);
+            return;
+          }
+
+          const result = await window.ghostAPI.transcribeAudio({
+            audioBase64: base64Data,
+            mimeType: 'audio/webm',
+          });
+
+          setIsTranscribing(false);
+
+          if (result && result.success && result.text?.trim()) {
+            const transcribedText = result.text.trim();
+            setInputPrompt(transcribedText);
+            // Automatically execute the question into the AI pipeline
+            executePrompt(transcribedText);
+          } else if (result && result.error) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: Date.now().toString(),
+                role: 'model',
+                text: `⚠️ Voice Transcription Error: ${result.error}`,
+                timestamp: Date.now(),
+                isError: true,
+              },
+            ]);
+          }
+        };
+        reader.readAsDataURL(audioBlob);
+      } catch (err: any) {
+        setIsTranscribing(false);
+        console.error('Transcription failed:', err);
+      }
+    };
+
+    recorder.stop();
+  };
+
+  const toggleListening = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  };
+
+  // Keep toggleListeningRef updated for hotkeys
+  useEffect(() => {
+    toggleListeningRef.current = toggleListening;
+  });
+
   // Capture screen & analyze with Vision AI
   const handleCaptureAndAnalyze = useCallback(
     async (customPrompt?: string) => {
       if (isStreaming) return;
 
-      const activeKey = config.provider === 'gemini' ? config.geminiApiKey : config.groqApiKey;
-      if (!activeKey?.trim()) {
+      const hasActiveKey =
+        config.provider === 'gemini'
+          ? !!config.geminiApiKey?.trim()
+          : config.provider === 'groq'
+          ? !!config.groqApiKey?.trim()
+          : config.provider === 'openrouter'
+          ? !!config.openrouterApiKey?.trim()
+          : (config.routerPreset === 'pollinations' || !!config.routerBaseUrl?.trim());
+
+      if (!hasActiveKey) {
         setIsSettingsOpen(true);
         return;
       }
@@ -352,13 +561,14 @@ const App: React.FC = () => {
         setCaptureStatus('idle');
       }
     },
-    [isStreaming, config.provider, config.geminiApiKey, config.groqApiKey, capturePrompt, assistantMode]
+    [isStreaming, config.provider, config.geminiApiKey, config.groqApiKey, config.openrouterApiKey, config.routerPreset, config.routerBaseUrl, capturePrompt, assistantMode]
   );
 
   const handleStopStream = () => {
     abortRef.current = true;
     setIsStreaming(false);
     setCaptureStatus('idle');
+    window.ghostAPI?.stopStream();
     // Mark the last model message as complete
     setMessages((prev) => {
       if (prev.length > 0 && prev[prev.length - 1].role === 'model' && prev[prev.length - 1].text === '') {
@@ -379,12 +589,21 @@ const App: React.FC = () => {
     }
   };
 
-  const handleTestKey = async () => {
-    const key = config.provider === 'gemini' ? config.geminiApiKey.trim() : config.groqApiKey.trim();
-    if (!key) return;
+  const handleTestKey = async (providerOverride?: 'gemini' | 'groq' | 'openrouter' | 'router') => {
+    const provider = providerOverride || config.provider;
+    let key = '';
+    if (provider === 'gemini') key = config.geminiApiKey.trim();
+    else if (provider === 'groq') key = config.groqApiKey.trim();
+    else if (provider === 'openrouter') key = config.openrouterApiKey.trim();
+    else if (provider === 'router') key = config.routerApiKey.trim();
+
+    if (provider !== 'router' && !key) return;
     setTestStatus({ testing: true });
     try {
-      const res = await window.ghostAPI.testApiKey(key, config.provider);
+      const res = await window.ghostAPI.testApiKey(key, provider, {
+        baseUrl: config.routerBaseUrl,
+        model: config.routerModel,
+      });
       setTestStatus({ testing: false, success: res.success, error: res.error });
     } catch (e: any) {
       setTestStatus({ testing: false, success: false, error: e?.message });
@@ -400,7 +619,14 @@ const App: React.FC = () => {
     }
   };
 
-  const hasApiKey = config.provider === 'gemini' ? !!config.geminiApiKey?.trim() : !!config.groqApiKey?.trim();
+  const hasApiKey =
+    config.provider === 'gemini'
+      ? !!config.geminiApiKey?.trim()
+      : config.provider === 'groq'
+      ? !!config.groqApiKey?.trim()
+      : config.provider === 'openrouter'
+      ? !!config.openrouterApiKey?.trim()
+      : (config.routerPreset === 'pollinations' || !!config.routerBaseUrl?.trim());
   const messageCount = messages.length;
 
   return (
@@ -421,6 +647,8 @@ const App: React.FC = () => {
         <div
           className="titlebar-drag-region shrink-0 h-12 px-3 flex items-center justify-between border-b"
           style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.015)', position: 'relative', zIndex: 10 }}
+          onMouseEnter={() => { if (isClickThrough) window.ghostAPI?.setIgnoreMouseEvents(false); }}
+          onMouseLeave={() => { if (isClickThrough) window.ghostAPI?.setIgnoreMouseEvents(true, { forward: true }); }}
         >
           {/* Left: Ghost Status Badge */}
           <div className="flex items-center gap-2 no-drag">
@@ -460,13 +688,49 @@ const App: React.FC = () => {
               <span>{isClickThrough ? 'Pass-Thru ON' : 'Click-Thru'}</span>
             </button>
 
-            {/* Model tag */}
-            <span
-              className="text-[10px] font-mono px-2 py-0.5 rounded"
-              style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.35)', border: '1px solid rgba(255,255,255,0.06)' }}
+            {/* Model tag button */}
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              title="Current AI Model & Provider (Click to open Settings)"
+              className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full transition-all hover:scale-105"
+              style={{
+                background:
+                  config.provider === 'groq'
+                    ? 'rgba(249, 115, 22, 0.15)'
+                    : config.provider === 'openrouter'
+                    ? 'rgba(168, 85, 247, 0.15)'
+                    : config.provider === 'router'
+                    ? 'rgba(16, 185, 129, 0.15)'
+                    : 'rgba(59, 130, 246, 0.15)',
+                color:
+                  config.provider === 'groq'
+                    ? '#fdba74'
+                    : config.provider === 'openrouter'
+                    ? '#d8b4fe'
+                    : config.provider === 'router'
+                    ? '#6ee7b7'
+                    : '#93c5fd',
+                border:
+                  config.provider === 'groq'
+                    ? '1px solid rgba(249, 115, 22, 0.35)'
+                    : config.provider === 'openrouter'
+                    ? '1px solid rgba(168, 85, 247, 0.35)'
+                    : config.provider === 'router'
+                    ? '1px solid rgba(16, 185, 129, 0.35)'
+                    : '1px solid rgba(59, 130, 246, 0.35)',
+              }}
             >
-              {config.provider === 'groq' ? `groq:${config.groqModel.split('-')[0]}` : config.model.split('-').slice(0, 2).join('-')}
-            </span>
+              <Sparkles className="w-2.5 h-2.5" />
+              <span>
+                {config.provider === 'groq'
+                  ? `groq:${config.groqModel.split('-')[0]}`
+                  : config.provider === 'openrouter'
+                  ? `openrouter:${config.openrouterModel.replace(':free', '').split('/').pop()?.slice(0, 10)}`
+                  : config.provider === 'router'
+                  ? `router:${config.routerPreset || 'custom'}`
+                  : config.model.split('-').slice(0, 2).join('-')}
+              </span>
+            </button>
           </div>
 
           {/* Center: Drag grip visual */}
@@ -522,12 +786,14 @@ const App: React.FC = () => {
         {/* ── Click-Through Notice Banner ── */}
         {isClickThrough && !isCollapsed && (
           <div
-            className="shrink-0 px-3 py-1.5 flex items-center justify-between text-[11px] border-b"
+            className="shrink-0 px-3 py-1.5 flex items-center justify-between text-[11px] border-b no-drag"
             style={{
               background: 'rgba(99,102,241,0.15)',
               borderColor: 'rgba(99,102,241,0.3)',
               color: '#c7d2fe',
             }}
+            onMouseEnter={() => window.ghostAPI?.setIgnoreMouseEvents(false)}
+            onMouseLeave={() => window.ghostAPI?.setIgnoreMouseEvents(true, { forward: true })}
           >
             <div className="flex items-center gap-1.5">
               <MousePointer className="w-3.5 h-3.5 text-indigo-400 animate-pulse shrink-0" />
@@ -557,6 +823,7 @@ const App: React.FC = () => {
               {[
                 ['Ctrl+\\', 'Toggle show/hide'],
                 ['Ctrl+Shift+S', 'Capture & analyze screen'],
+                ['F9 / Ctrl+Shift+L', 'Push-to-Listen (Voice STT)'],
                 ['Ctrl+Shift+X', 'Toggle Click-Through mode'],
                 ['Ctrl+Shift+H', 'Stealth Panic Hide'],
                 ['Esc', 'Instant hide overlay'],
@@ -694,10 +961,15 @@ const App: React.FC = () => {
                   style={{ scrollbarWidth: 'none' }}
                 >
                   {messages.length === 0 ? (
-                    <EmptyState onCapture={() => { setActiveTab('capture'); }} onOpenSettings={() => setIsSettingsOpen(true)} hasApiKey={hasApiKey} />
+                    <EmptyState
+                      onCapture={() => { setActiveTab('capture'); }}
+                      onOpenSettings={() => setIsSettingsOpen(true)}
+                      hasApiKey={hasApiKey}
+                      provider={config.provider}
+                    />
                   ) : (
                     messages.map((msg) => (
-                      <MessageBubble key={msg.id} msg={msg} />
+                      <MessageBubble key={msg.id} msg={msg} provider={config.provider} />
                     ))
                   )}
                   <div ref={messagesEndRef} />
@@ -705,6 +977,45 @@ const App: React.FC = () => {
 
                 {/* Input Bar */}
                 <div className="shrink-0 p-2.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  {/* Live Voice Status Banners */}
+                  {isListening && (
+                    <div
+                      className="flex items-center justify-between px-3 py-1.5 rounded-xl mb-2 text-xs transition-all animate-pulse"
+                      style={{
+                        background: 'rgba(239, 68, 68, 0.12)',
+                        border: '1px solid rgba(239, 68, 68, 0.35)',
+                        color: '#fca5a5',
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                        <span className="font-semibold text-[11px]">🎙️ Listening to speaker... Speak now</span>
+                      </div>
+                      <button
+                        onClick={stopListening}
+                        className="px-2 py-0.5 rounded text-[10px] font-semibold transition-all hover:bg-red-600/30 text-white flex items-center gap-1"
+                        style={{ border: '1px solid rgba(255,255,255,0.2)' }}
+                      >
+                        <span>Stop & Answer</span>
+                        <kbd className="font-mono text-[9px] bg-red-950/80 px-1 rounded">F9</kbd>
+                      </button>
+                    </div>
+                  )}
+
+                  {isTranscribing && (
+                    <div
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-xl mb-2 text-xs transition-all"
+                      style={{
+                        background: 'rgba(249, 115, 22, 0.12)',
+                        border: '1px solid rgba(249, 115, 22, 0.35)',
+                        color: '#fdba74',
+                      }}
+                    >
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-400" />
+                      <span className="text-[11px] font-medium">⚡ Groq Whisper transcribing voice question...</span>
+                    </div>
+                  )}
+
                   {/* Action bar */}
                   <div className="flex items-center gap-1.5 mb-2">
                     <button
@@ -717,6 +1028,33 @@ const App: React.FC = () => {
                       <span>Capture Screen</span>
                       <span className="opacity-60 font-mono">Ctrl+⇧+S</span>
                     </button>
+
+                    {/* Push-to-Listen Quick Toggle */}
+                    <button
+                      onClick={toggleListening}
+                      disabled={isStreaming || isTranscribing}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all ${
+                        isListening
+                          ? 'bg-red-500/20 text-red-300 border border-red-500/50 shadow-sm'
+                          : 'bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 hover:text-white hover:border-zinc-500'
+                      }`}
+                      title="Push to Listen (Interview / Speaker Voice) [F9 or Ctrl+Shift+L]"
+                    >
+                      {isListening ? (
+                        <>
+                          <Radio className="w-3 h-3 text-red-400 animate-pulse" />
+                          <span>Recording...</span>
+                          <span className="opacity-70 font-mono text-[9px] bg-red-950/60 px-1 rounded">F9</span>
+                        </>
+                      ) : (
+                        <>
+                          <Mic className="w-3 h-3 text-emerald-400" />
+                          <span>Push-to-Listen</span>
+                          <span className="opacity-60 font-mono text-[9px] bg-zinc-700/50 px-1 rounded">F9</span>
+                        </>
+                      )}
+                    </button>
+
                     {messageCount > 0 && !isStreaming && (
                       <button
                         onClick={handleClearMessages}
@@ -744,11 +1082,36 @@ const App: React.FC = () => {
                           handleSendMessage();
                         }
                       }}
-                      placeholder={hasApiKey ? 'Ask anything...' : 'Set API key in Settings first...'}
-                      disabled={isStreaming || !hasApiKey}
+                      placeholder={
+                        isListening
+                          ? 'Listening to spoken words...'
+                          : hasApiKey
+                          ? 'Ask anything or press F9 to speak...'
+                          : 'Set API key in Settings first...'
+                      }
+                      disabled={isStreaming || !hasApiKey || isListening}
                       className="flex-1 bg-transparent text-xs outline-none px-1"
                       style={{ color: 'rgba(255,255,255,0.85)', caretColor: '#3b82f6' }}
                     />
+
+                    {/* Microphone Push-to-Listen Icon Button */}
+                    <button
+                      onClick={toggleListening}
+                      disabled={isStreaming || isTranscribing}
+                      className={`p-1.5 rounded-lg transition-all ${
+                        isListening
+                          ? 'bg-red-500/25 text-red-300 border border-red-500/40 shadow-sm'
+                          : 'hover:bg-white/10 text-zinc-400 hover:text-white'
+                      }`}
+                      title={isListening ? 'Stop listening & send (F9)' : 'Push to Listen [F9 or Ctrl+Shift+L]'}
+                    >
+                      {isListening ? (
+                        <MicOff className="w-3.5 h-3.5 text-red-400" />
+                      ) : (
+                        <Mic className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+
                     {isStreaming ? (
                       <button
                         onClick={handleStopStream}
@@ -939,16 +1302,21 @@ const App: React.FC = () => {
       {/* ── Settings Modal ── */}
       {isSettingsOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto py-4 px-4"
           style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)' }}
           onClick={(e) => { if (e.target === e.currentTarget) setIsSettingsOpen(false); }}
         >
           <div
-            className="w-full max-w-sm rounded-2xl p-5 space-y-4"
+            className="w-full max-w-sm rounded-2xl p-5 space-y-4 my-auto"
+            onClick={(e) => e.stopPropagation()}
             style={{
               background: 'rgba(14,15,20,0.98)',
               border: '1px solid rgba(255,255,255,0.1)',
               boxShadow: '0 32px 80px rgba(0,0,0,0.9)',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'rgba(255,255,255,0.1) transparent',
             }}
           >
             {/* Header */}
@@ -964,14 +1332,14 @@ const App: React.FC = () => {
 
             {/* Provider Switcher */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>AI Cloud Provider</label>
-              <div className="flex rounded-xl p-1" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>AI Cloud Provider & Router</label>
+              <div className="grid grid-cols-2 gap-1 rounded-xl p-1" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
                 <button
                   type="button"
                   onClick={() => setConfig({ ...config, provider: 'gemini' })}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all text-center ${
                     config.provider === 'gemini'
-                      ? 'bg-blue-600 text-white shadow'
+                      ? 'bg-blue-600 text-white shadow font-semibold'
                       : 'text-white/40 hover:text-white/70'
                   }`}
                 >
@@ -980,19 +1348,41 @@ const App: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setConfig({ ...config, provider: 'groq' })}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all text-center ${
                     config.provider === 'groq'
-                      ? 'bg-orange-600 text-white shadow'
+                      ? 'bg-orange-600 text-white shadow font-semibold'
                       : 'text-white/40 hover:text-white/70'
                   }`}
                 >
                   Groq Cloud ⚡
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, provider: 'openrouter' })}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all text-center ${
+                    config.provider === 'openrouter'
+                      ? 'bg-purple-600 text-white shadow font-semibold'
+                      : 'text-white/40 hover:text-white/70'
+                  }`}
+                >
+                  OpenRouter 🌐 (Free)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, provider: 'router' })}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all text-center ${
+                    config.provider === 'router'
+                      ? 'bg-emerald-600 text-white shadow font-semibold'
+                      : 'text-white/40 hover:text-white/70'
+                  }`}
+                >
+                  Free Router 🔀
+                </button>
               </div>
             </div>
 
             {/* Provider-specific Key & Model */}
-            {config.provider === 'gemini' ? (
+            {config.provider === 'gemini' && (
               <>
                 {/* Gemini API Key */}
                 <div className="space-y-1.5">
@@ -1024,7 +1414,7 @@ const App: React.FC = () => {
                   />
                   <div className="flex items-center justify-between pt-0.5">
                     <button
-                      onClick={handleTestKey}
+                      onClick={() => handleTestKey('gemini')}
                       disabled={!config.geminiApiKey.trim() || testStatus?.testing}
                       className="text-[11px] px-2.5 py-1 rounded-lg transition-all disabled:opacity-40"
                       style={{
@@ -1043,31 +1433,42 @@ const App: React.FC = () => {
                       </span>
                     )}
                     {testStatus?.success === false && (
-                      <span className="text-[11px]" style={{ color: '#f87171' }}>Connection failed</span>
+                      <span className="text-[11px] max-w-[200px] truncate" style={{ color: '#f87171' }} title={testStatus.error || 'Connection failed'}>
+                        {testStatus.error || 'Connection failed'}
+                      </span>
                     )}
                   </div>
                 </div>
 
                 {/* Gemini Model Selection */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>Gemini Model</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold" style={{ color: '#f4f4f5' }}>Gemini Model</label>
+                    <span className="text-[10px] font-mono flex items-center gap-1" style={{ color: '#34d399' }} title="Automatic multi-model fallback on rate limits or outages">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                      Fault-Tolerant
+                    </span>
+                  </div>
                   <select
                     value={config.model}
                     onChange={(e) => setConfig({ ...config, model: e.target.value })}
-                    className="w-full rounded-lg px-2.5 py-2 text-xs outline-none font-mono cursor-pointer"
+                    className="w-full rounded-xl px-3 py-2.5 text-xs font-medium outline-none cursor-pointer border border-zinc-700/80 bg-zinc-900 text-zinc-100 hover:border-zinc-500 focus:border-blue-500 shadow-md transition-colors"
                     style={{
-                      background: 'rgba(255,255,255,0.04)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      color: 'white',
+                      backgroundColor: '#18181b',
+                      color: '#f4f4f5',
+                      colorScheme: 'dark',
                     }}
                   >
-                    <option value="gemini-3.8-flash">gemini-3.8-flash — Fastest, Vision & Multimodal ⚡</option>
-                    <option value="gemini-2.0-flash">gemini-2.0-flash — Fast & Lightweight</option>
-                    <option value="gemini-2.5-pro">gemini-2.5-pro — Deep Reasoning</option>
+                    <option value="gemini-3.8-flash" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>gemini-3.8-flash — Flagship Intelligence & Vision ⚡ (Free)</option>
+                    <option value="gemini-3.5-flash-lite" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>gemini-3.5-flash-lite — Ultra Fast & Lightweight 🚀 (Free)</option>
+                    <option value="gemini-3.7-flash" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>gemini-3.7-flash — Fast Coding & Agents (Free)</option>
+                    <option value="gemini-3.6-flash" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>gemini-3.6-flash — Balanced Multimodal (Free)</option>
                   </select>
                 </div>
               </>
-            ) : (
+            )}
+
+            {config.provider === 'groq' && (
               <>
                 {/* Groq API Key */}
                 <div className="space-y-1.5">
@@ -1099,7 +1500,7 @@ const App: React.FC = () => {
                   />
                   <div className="flex items-center justify-between pt-0.5">
                     <button
-                      onClick={handleTestKey}
+                      onClick={() => handleTestKey('groq')}
                       disabled={!config.groqApiKey.trim() || testStatus?.testing}
                       className="text-[11px] px-2.5 py-1 rounded-lg transition-all disabled:opacity-40"
                       style={{
@@ -1118,29 +1519,314 @@ const App: React.FC = () => {
                       </span>
                     )}
                     {testStatus?.success === false && (
-                      <span className="text-[11px]" style={{ color: '#f87171' }}>Connection failed</span>
+                      <span className="text-[11px] max-w-[200px] truncate" style={{ color: '#f87171' }} title={testStatus.error || 'Connection failed'}>
+                        {testStatus.error || 'Connection failed'}
+                      </span>
                     )}
                   </div>
                 </div>
 
                 {/* Groq Model Selection */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>Groq Model</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold" style={{ color: '#f4f4f5' }}>Groq Model</label>
+                    <span className="text-[10px] font-mono flex items-center gap-1" style={{ color: '#34d399' }} title="Automatic multi-model fallback on rate limits or outages">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                      Fault-Tolerant
+                    </span>
+                  </div>
                   <select
                     value={config.groqModel}
                     onChange={(e) => setConfig({ ...config, groqModel: e.target.value })}
-                    className="w-full rounded-lg px-2.5 py-2 text-xs outline-none font-mono cursor-pointer"
+                    className="w-full rounded-xl px-3 py-2.5 text-xs font-medium outline-none cursor-pointer border border-zinc-700/80 bg-zinc-900 text-zinc-100 hover:border-zinc-500 focus:border-orange-500 shadow-md transition-colors"
+                    style={{
+                      backgroundColor: '#18181b',
+                      color: '#f4f4f5',
+                      colorScheme: 'dark',
+                    }}
+                  >
+                    <option value="llama-3.3-70b-versatile" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>llama-3.3-70b-versatile — Flagship Reasoning & Coding (280 tok/s) ⚡</option>
+                    <option value="deepseek-r1-distill-qwen-32b" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>deepseek-r1-distill-qwen-32b — Deep Reasoning, Math & Logic (320 tok/s) 🧠</option>
+                    <option value="qwen-2.5-coder-32b" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>qwen-2.5-coder-32b — Specialized Code Synthesis & Debugging 💻</option>
+                    <option value="openai/gpt-oss-120b" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>openai/gpt-oss-120b — High-Capacity Open Weights Model 🌐</option>
+                    <option value="openai/gpt-oss-20b" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>openai/gpt-oss-20b — Ultra-Fast Lightweight Model (400 tok/s) ⚡</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            {config.provider === 'openrouter' && (
+              <>
+                {/* OpenRouter API Key */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                      OpenRouter API Key
+                    </label>
+                    <a
+                      href="https://openrouter.ai/keys"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] flex items-center gap-0.5 hover:underline"
+                      style={{ color: '#c084fc' }}
+                    >
+                      Get free key (free models daily) <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  </div>
+                  <input
+                    type="password"
+                    value={config.openrouterApiKey}
+                    onChange={(e) => setConfig({ ...config, openrouterApiKey: e.target.value })}
+                    placeholder="sk-or-v1-..."
+                    className="w-full rounded-lg px-3 py-2 text-xs outline-none font-mono transition-all"
                     style={{
                       background: 'rgba(255,255,255,0.04)',
                       border: '1px solid rgba(255,255,255,0.1)',
                       color: 'white',
                     }}
+                  />
+                  <div className="flex items-center justify-between pt-0.5">
+                    <button
+                      onClick={() => handleTestKey('openrouter')}
+                      disabled={!config.openrouterApiKey.trim() || testStatus?.testing}
+                      className="text-[11px] px-2.5 py-1 rounded-lg transition-all disabled:opacity-40"
+                      style={{
+                        background: 'rgba(255,255,255,0.05)',
+                        color: 'rgba(255,255,255,0.6)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                      }}
+                    >
+                      {testStatus?.testing ? (
+                        <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Testing...</span>
+                      ) : 'Test Connection'}
+                    </button>
+                    {testStatus?.success === true && (
+                      <span className="text-[11px] flex items-center gap-1" style={{ color: '#34d399' }}>
+                        <Check className="w-3 h-3" /> Valid OpenRouter Key
+                      </span>
+                    )}
+                    {testStatus?.success === false && (
+                      <span className="text-[11px] max-w-[200px] truncate" style={{ color: '#f87171' }} title={testStatus.error || 'Connection failed'}>
+                        {testStatus.error || 'Connection failed'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* OpenRouter Model Selection */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold" style={{ color: '#f4f4f5' }}>OpenRouter Free Model</label>
+                    <span className="text-[10px] font-mono flex items-center gap-1" style={{ color: '#c084fc' }} title="Rotating catalog of $0.00 free models">
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse"></span>
+                      Free Tokens
+                    </span>
+                  </div>
+                  <select
+                    value={config.openrouterModel}
+                    onChange={(e) => setConfig({ ...config, openrouterModel: e.target.value })}
+                    className="w-full rounded-xl px-3 py-2.5 text-xs font-medium outline-none cursor-pointer border border-zinc-700/80 bg-zinc-900 text-zinc-100 hover:border-zinc-500 focus:border-purple-500 shadow-md transition-colors"
+                    style={{
+                      backgroundColor: '#18181b',
+                      color: '#f4f4f5',
+                      colorScheme: 'dark',
+                    }}
                   >
-                    <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile — Flagship Reasoning & Coding (300+ tok/s) ⚡</option>
-                    <option value="deepseek-r1-distill-llama-70b">deepseek-r1-distill-llama-70b — Deep Algorithmic Thinking 🧠</option>
-                    <option value="llama-3.1-8b-instant">llama-3.1-8b-instant — Ultra Instant & Lightweight 🚀</option>
-                    <option value="llama-3.2-11b-vision-preview">llama-3.2-11b-vision-preview — Vision & Screen Analysis 👁️</option>
+                    <option value="openrouter/free" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>openrouter/free — Smart Free Auto-Router 🔀 (Auto-Selects Healthy Free Model)</option>
+                    <option value="google/gemini-2.0-flash-exp:free" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>google/gemini-2.0-flash-exp:free — Multimodal Screen Vision & 1M Context 👁️ (Free)</option>
+                    <option value="meta-llama/llama-3.3-70b-instruct:free" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>meta-llama/llama-3.3-70b-instruct:free — Meta Flagship 70B Reasoning ⚡ (Free)</option>
+                    <option value="deepseek/deepseek-r1:free" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>deepseek/deepseek-r1:free — SOTA Math & Logic Reasoning 🧠 (Free)</option>
+                    <option value="qwen/qwen-2.5-coder-32b-instruct:free" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>qwen/qwen-2.5-coder-32b-instruct:free — Code Specialist & Architecture 💻 (Free)</option>
+                    <option value="mistralai/mistral-7b-instruct:free" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>mistralai/mistral-7b-instruct:free — Ultra-Fast Low Latency 🚀 (Free)</option>
+                    <option value="deepseek/deepseek-chat:free" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>deepseek/deepseek-chat:free — DeepSeek V3 General Chat 🌐 (Free)</option>
+                    <option value="google/gemini-2.0-pro-exp-02-05:free" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>google/gemini-2.0-pro-exp-02-05:free — Pro Research & Multimodal 🔬 (Free)</option>
                   </select>
+                </div>
+
+                {/* Free Tier Info Badge */}
+                <div
+                  className="p-2.5 rounded-xl text-[11px] leading-relaxed"
+                  style={{ background: 'rgba(192,132,252,0.08)', border: '1px solid rgba(192,132,252,0.2)', color: '#d8b4fe' }}
+                >
+                  <strong>🎁 100% Free OpenRouter Models:</strong> Models with <code className="text-[10px] bg-purple-900/40 px-1 py-0.5 rounded">:free</code> suffix cost $0.00 per token. Ghost Copilot automatically fails over across candidate free models if any model is rate-limited.
+                </div>
+              </>
+            )}
+
+            {config.provider === 'router' && (
+              <>
+                {/* Preset Selector */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold" style={{ color: '#f4f4f5' }}>Router Preset</label>
+                  <select
+                    value={config.routerPreset}
+                    onChange={(e) => {
+                      const presetId = e.target.value;
+                      if (presetId === 'pollinations') {
+                        setConfig({
+                          ...config,
+                          routerPreset: 'pollinations',
+                          routerBaseUrl: 'https://text.pollinations.ai/openai',
+                          routerModel: 'openai',
+                        });
+                      } else if (presetId === 'cerebras') {
+                        setConfig({
+                          ...config,
+                          routerPreset: 'cerebras',
+                          routerBaseUrl: 'https://api.cerebras.ai/v1',
+                          routerModel: 'llama-3.3-70b',
+                        });
+                      } else if (presetId === 'ollama') {
+                        setConfig({
+                          ...config,
+                          routerPreset: 'ollama',
+                          routerBaseUrl: 'http://localhost:11434/v1',
+                          routerModel: 'llama3.2',
+                        });
+                      } else if (presetId === 'deepinfra') {
+                        setConfig({
+                          ...config,
+                          routerPreset: 'deepinfra',
+                          routerBaseUrl: 'https://api.deepinfra.com/v1/openai',
+                          routerModel: 'meta-llama/Llama-3.3-70B-Instruct',
+                        });
+                      } else {
+                        setConfig({
+                          ...config,
+                          routerPreset: 'custom',
+                        });
+                      }
+                    }}
+                    className="w-full rounded-xl px-3 py-2.5 text-xs font-medium outline-none cursor-pointer border border-zinc-700/80 bg-zinc-900 text-zinc-100 hover:border-zinc-500 focus:border-emerald-500 shadow-md transition-colors"
+                    style={{
+                      backgroundColor: '#18181b',
+                      color: '#f4f4f5',
+                      colorScheme: 'dark',
+                    }}
+                  >
+                    <option value="pollinations" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>Pollinations AI — 100% Free (No API Key Required! 🎁)</option>
+                    <option value="cerebras" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>Cerebras Cloud — Ultra-Fast 2,000 tok/s Free Tier ⚡</option>
+                    <option value="ollama" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>Ollama — Local Offline 100% Free 💻</option>
+                    <option value="deepinfra" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>DeepInfra — Free Tier Open Weights 🌐</option>
+                    <option value="custom" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>Custom OpenAI-Compatible Router (LiteLLM, vLLM, etc.) 🔀</option>
+                  </select>
+                </div>
+
+                {/* Router Base URL */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>Router Endpoint (Base URL)</label>
+                  <input
+                    type="text"
+                    value={config.routerBaseUrl}
+                    onChange={(e) => setConfig({ ...config, routerBaseUrl: e.target.value })}
+                    placeholder="https://..."
+                    className="w-full rounded-lg px-3 py-2 text-xs outline-none font-mono transition-all"
+                    style={{
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: 'white',
+                    }}
+                  />
+                </div>
+
+                {/* API Key (Optional for Pollinations and Ollama) */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                      API Key
+                      {config.routerPreset === 'pollinations' || config.routerPreset === 'ollama' ? (
+                        <span className="ml-1 text-[10px] text-emerald-400 font-normal">(Not required)</span>
+                      ) : (
+                        <span className="ml-1 text-[10px] text-white/30 font-normal">(if required by router)</span>
+                      )}
+                    </label>
+                    {config.routerPreset === 'cerebras' && (
+                      <a
+                        href="https://cloud.cerebras.ai"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[10px] flex items-center gap-0.5 hover:underline"
+                        style={{ color: '#34d399' }}
+                      >
+                        Get free Cerebras key <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    )}
+                  </div>
+                  <input
+                    type="password"
+                    value={config.routerApiKey}
+                    onChange={(e) => setConfig({ ...config, routerApiKey: e.target.value })}
+                    placeholder={
+                      config.routerPreset === 'pollinations'
+                        ? 'Not required for Pollinations AI'
+                        : config.routerPreset === 'ollama'
+                        ? 'Not required for local Ollama'
+                        : 'csk-... or router token'
+                    }
+                    className="w-full rounded-lg px-3 py-2 text-xs outline-none font-mono transition-all"
+                    style={{
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: 'white',
+                    }}
+                  />
+                </div>
+
+                {/* Model Name */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>Model Name</label>
+                  <input
+                    type="text"
+                    value={config.routerModel}
+                    onChange={(e) => setConfig({ ...config, routerModel: e.target.value })}
+                    placeholder="e.g. openai, llama-3.3-70b, llama3.2"
+                    className="w-full rounded-lg px-3 py-2 text-xs outline-none font-mono transition-all"
+                    style={{
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: 'white',
+                    }}
+                  />
+                  <div className="flex items-center justify-between pt-0.5">
+                    <button
+                      onClick={() => handleTestKey('router')}
+                      disabled={testStatus?.testing}
+                      className="text-[11px] px-2.5 py-1 rounded-lg transition-all disabled:opacity-40"
+                      style={{
+                        background: 'rgba(255,255,255,0.05)',
+                        color: 'rgba(255,255,255,0.6)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                      }}
+                    >
+                      {testStatus?.testing ? (
+                        <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Testing...</span>
+                      ) : 'Test Connection'}
+                    </button>
+                    {testStatus?.success === true && (
+                      <span className="text-[11px] flex items-center gap-1" style={{ color: '#34d399' }}>
+                        <Check className="w-3 h-3" /> Connected to Router
+                      </span>
+                    )}
+                    {testStatus?.success === false && (
+                      <span className="text-[11px] max-w-[200px] truncate" style={{ color: '#f87171' }} title={testStatus.error || 'Connection failed'}>
+                        {testStatus.error || 'Connection failed'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Router Info Badge */}
+                <div
+                  className="p-2.5 rounded-xl text-[11px] leading-relaxed"
+                  style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', color: '#6ee7b7' }}
+                >
+                  {config.routerPreset === 'pollinations'
+                    ? '🎁 Pollinations AI requires ZERO API key and gives 100% free unlimited tokens for text and code.'
+                    : config.routerPreset === 'cerebras'
+                    ? '⚡ Cerebras runs inference on Wafer-Scale chips at 2,000+ tokens/second with generous daily free tiers.'
+                    : config.routerPreset === 'ollama'
+                    ? '💻 Ollama runs 100% locally on your machine with total privacy and zero token cost.'
+                    : '🔀 Any OpenAI-compatible router endpoint (LiteLLM, vLLM, Bifrost, DeepInfra) can be connected.'}
                 </div>
               </>
             )}
@@ -1184,6 +1870,24 @@ const App: React.FC = () => {
               />
             </div>
 
+            {/* Temperature Slider */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>Temperature</label>
+                <span className="text-[11px] font-mono" style={{ color: 'rgba(255,255,255,0.4)' }}>{config.temperature ?? 0.7}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={config.temperature ?? 0.7}
+                onChange={(e) => setConfig({ ...config, temperature: parseFloat(e.target.value) })}
+                className="w-full h-1 appearance-none rounded cursor-pointer"
+                style={{ accentColor: '#3b82f6' }}
+              />
+            </div>
+
             {/* Ghost Mode Info Box */}
             <div
               className="p-3 rounded-xl text-[11px] leading-relaxed"
@@ -1219,10 +1923,16 @@ const App: React.FC = () => {
 
 // ── Sub-components ──
 
-const EmptyState: React.FC<{ onCapture: () => void; onOpenSettings: () => void; hasApiKey: boolean }> = ({
+const EmptyState: React.FC<{
+  onCapture: () => void;
+  onOpenSettings: () => void;
+  hasApiKey: boolean;
+  provider: 'gemini' | 'groq' | 'openrouter' | 'router';
+}> = ({
   onCapture,
   onOpenSettings,
   hasApiKey,
+  provider,
 }) => (
   <div className="h-full flex flex-col items-center justify-center text-center p-6 py-8">
     <div
@@ -1239,6 +1949,12 @@ const EmptyState: React.FC<{ onCapture: () => void; onOpenSettings: () => void; 
     <p className="text-xs mb-5 leading-relaxed max-w-[260px]" style={{ color: 'rgba(255,255,255,0.4)' }}>
       {hasApiKey
         ? 'Completely invisible on screen share. Ask anything or capture your screen for instant AI analysis.'
+        : provider === 'openrouter'
+        ? 'Add your OpenRouter key to get started with free models (:free). This overlay is invisible in all screen share apps.'
+        : provider === 'groq'
+        ? 'Add your Groq API key to get started. This overlay is invisible in all screen share apps.'
+        : provider === 'router'
+        ? 'Configure your Free Router endpoint in Settings to get started. This overlay is invisible in all screen share apps.'
         : 'Add your free Gemini API key to get started. This overlay is invisible in all screen share apps.'}
     </p>
     {!hasApiKey ? (
@@ -1248,7 +1964,13 @@ const EmptyState: React.FC<{ onCapture: () => void; onOpenSettings: () => void; 
         style={{ background: '#2563eb', color: 'white' }}
       >
         <Settings className="w-3.5 h-3.5" />
-        Add Gemini API Key
+        {provider === 'openrouter'
+          ? 'Add OpenRouter Key'
+          : provider === 'groq'
+          ? 'Add Groq API Key'
+          : provider === 'router'
+          ? 'Configure Free Router'
+          : 'Add Gemini API Key'}
       </button>
     ) : (
       <div className="flex flex-col gap-2 items-center">
@@ -1267,7 +1989,11 @@ const EmptyState: React.FC<{ onCapture: () => void; onOpenSettings: () => void; 
           </div>
           <div>
             <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono mr-1.5" style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>Ctrl+Shift+S</kbd>
-            Instant capture
+            Instant screen capture
+          </div>
+          <div>
+            <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono mr-1.5" style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>F9 / Ctrl+Shift+L</kbd>
+            Push to Listen (Speaker voice)
           </div>
         </div>
       </div>
@@ -1275,7 +2001,7 @@ const EmptyState: React.FC<{ onCapture: () => void; onOpenSettings: () => void; 
   </div>
 );
 
-const MessageBubble: React.FC<{ msg: Message }> = ({ msg }) => {
+const MessageBubble: React.FC<{ msg: Message; provider?: 'gemini' | 'groq' | 'openrouter' | 'router' }> = ({ msg, provider = 'gemini' }) => {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -1340,7 +2066,15 @@ const MessageBubble: React.FC<{ msg: Message }> = ({ msg }) => {
         ) : (
           <div className="flex items-center gap-2 py-1" style={{ color: 'rgba(255,255,255,0.4)' }}>
             <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: '#3b82f6' }} />
-            <span className="text-[11px] font-mono">Gemini is analyzing...</span>
+            <span className="text-[11px] font-mono">
+              {provider === 'groq'
+                ? 'Groq is thinking...'
+                : provider === 'openrouter'
+                ? 'OpenRouter is thinking...'
+                : provider === 'router'
+                ? 'Free Router is thinking...'
+                : 'Gemini is analyzing...'}
+            </span>
           </div>
         )}
       </div>

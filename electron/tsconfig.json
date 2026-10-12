@@ -16,6 +16,9 @@
     "main.ts",
     "preload.ts",
     "geminiService.ts",
+    "groqService.ts",
+    "openrouterService.ts",
+    "routerService.ts",
     "screenshotService.ts",
     "storeService.ts"
   ]
