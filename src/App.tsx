@@ -31,6 +31,10 @@ import {
   Mic,
   MicOff,
   Radio,
+  Headphones,
+  Volume2,
+  Layers,
+  ListOrdered,
 } from 'lucide-react';
 import { MarkdownRenderer } from './components/MarkdownRenderer';
 
@@ -58,6 +62,7 @@ interface AppConfig {
   groqModel: string;
   temperature: number;
   autoFallback: boolean;
+  selectedAudioOutputDevice?: string;
 }
 
 type ActiveTab = 'chat' | 'capture';
@@ -115,13 +120,20 @@ const App: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [captureStatus, setCaptureStatus] = useState<'idle' | 'capturing' | 'analyzing'>('idle');
 
-  // Push-to-Listen voice state
+  // Push-to-Listen voice state (User Microphone)
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-  const toggleListeningRef = useRef<() => void>(() => {});
+  const toggleListeningRef = useRef<() => void>(() => { });
+
+  // Meeting Audio State (System Speaker Output via Rust WASAPI loopback)
+  const [isMeetingListening, setIsMeetingListening] = useState(false);
+  const [meetingTranscripts, setMeetingTranscripts] = useState<Array<{ id: string; speaker: 'meeting' | 'user'; text: string; timestamp: number }>>([]);
+  const [showTranscriptDrawer, setShowTranscriptDrawer] = useState(false);
+  const [audioDevices, setAudioDevices] = useState<{ inputs: any[]; outputs: any[] }>({ inputs: [], outputs: [] });
+  const [selectedOutputDevice, setSelectedOutputDevice] = useState<string>('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -145,9 +157,12 @@ const App: React.FC = () => {
           if (obsoleteGemini.includes(cfg.model)) {
             cfg.model = 'gemini-3.8-flash';
           }
-          const obsoleteGroq = ['llama-3.1-8b-instant', 'llama-3.2-11b-vision-preview', 'deepseek-r1-distill-llama-70b'];
+          const obsoleteGroq = ['llama-3.2-11b-vision-preview', 'deepseek-r1-distill-llama-70b', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b'];
           if (obsoleteGroq.includes(cfg.groqModel)) {
             cfg.groqModel = 'llama-3.3-70b-versatile';
+          }
+          if (cfg.selectedAudioOutputDevice) {
+            setSelectedOutputDevice(cfg.selectedAudioOutputDevice);
           }
           setConfig((prev) => ({ ...prev, ...cfg }));
         }
@@ -270,6 +285,21 @@ const App: React.FC = () => {
       window.ghostAPI?.stopStream();
     });
 
+    const unsubMeetingTranscript = window.ghostAPI.onMeetingTranscript?.((item) => {
+      setMeetingTranscripts((prev) => [...prev.slice(-40), item]);
+    });
+
+    const unsubMeetingStatus = window.ghostAPI.onMeetingStatus?.((status) => {
+      setIsMeetingListening(status.isCapturing);
+    });
+
+    // Fetch audio devices from Rust native module
+    window.ghostAPI.getAudioDevices?.().then((devices) => {
+      if (devices) {
+        setAudioDevices(devices);
+      }
+    });
+
     return () => {
       unsubChunk();
       unsubEnd();
@@ -279,6 +309,8 @@ const App: React.FC = () => {
       unsubHotkeyListen?.();
       unsubClickThrough();
       unsubPanic();
+      unsubMeetingTranscript?.();
+      unsubMeetingStatus?.();
     };
   }, []);
 
@@ -336,9 +368,16 @@ const App: React.FC = () => {
 
   // Export session to Markdown
   const handleExportSession = async () => {
-    if (messages.length === 0) return;
+    const activeModelName =
+      config.provider === 'groq'
+        ? config.groqModel
+        : config.provider === 'openrouter'
+          ? config.openrouterModel
+          : config.provider === 'router'
+            ? (config.routerModel || config.routerPreset)
+            : config.model;
 
-    let markdown = `# Ghost AI Session Export\n*Date: ${new Date().toLocaleString()}*  \n*Mode: ${assistantMode.toUpperCase()}*  \n*Model: ${config.model}*\n\n---\n\n`;
+    let markdown = `# Ghost AI Session Export\n*Date: ${new Date().toLocaleString()}*  \n*Provider: ${config.provider.toUpperCase()}*  \n*Model: ${activeModelName}*  \n*Mode: ${assistantMode.toUpperCase()}*\n\n---\n\n`;
 
     for (const msg of messages) {
       const timeStr = new Date(msg.timestamp).toLocaleTimeString();
@@ -521,6 +560,90 @@ const App: React.FC = () => {
     }
   };
 
+  // ── Meeting Audio (Rust WASAPI / ScreenCaptureKit System Loopback) ──
+  const toggleMeetingAudio = async () => {
+    if (isMeetingListening) {
+      const res = await window.ghostAPI.stopMeetingAudio?.();
+      if (res?.success) {
+        setIsMeetingListening(false);
+      }
+    } else {
+      const res = await window.ghostAPI.startMeetingAudio?.(selectedOutputDevice || undefined);
+      if (res?.success) {
+        setIsMeetingListening(true);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: 'model',
+            text: `⚠️ Meeting Audio Capture: ${res?.error || 'Could not start speaker capture. Ensure speakers/headphones are active.'}`,
+            timestamp: Date.now(),
+            isError: true,
+          },
+        ]);
+      }
+    }
+  };
+
+  const handleWhatToAnswer = async () => {
+    const rolling = await window.ghostAPI.getRollingTranscript?.();
+    const sourceList = (rolling && rolling.length > 0) ? rolling : meetingTranscripts;
+    if (!sourceList || sourceList.length === 0) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: 'model',
+          text: 'ℹ️ No meeting audio transcript captured yet. Click **"Sync Meeting"** in the action bar to start capturing the interviewer or speaker audio.',
+          timestamp: Date.now(),
+        },
+      ]);
+      return;
+    }
+    const recent = sourceList.slice(-6).map((t) => `[${t.speaker.toUpperCase()}]: ${t.text}`).join('\n');
+    executePrompt(`Based on this live meeting conversation:\n\n${recent}\n\nWhat is the best, most direct, and impressive answer to what was just asked or discussed? Give me the answer formatted concisely to speak aloud.`);
+  };
+
+  const handleRecapMeeting = async () => {
+    const rolling = await window.ghostAPI.getRollingTranscript?.();
+    const sourceList = (rolling && rolling.length > 0) ? rolling : meetingTranscripts;
+    if (!sourceList || sourceList.length === 0) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: 'model',
+          text: 'ℹ️ No meeting transcript recorded yet. Click **"Sync Meeting"** to start recording notes.',
+          timestamp: Date.now(),
+        },
+      ]);
+      return;
+    }
+    const fullTranscript = sourceList.map((t) => `[${t.speaker.toUpperCase()}]: ${t.text}`).join('\n');
+    executePrompt(`Please provide a concise executive summary, key decisions, and action items from this meeting conversation transcript:\n\n${fullTranscript}`);
+  };
+
+  const handleFollowUp = async () => {
+    const rolling = await window.ghostAPI.getRollingTranscript?.();
+    const sourceList = (rolling && rolling.length > 0) ? rolling : meetingTranscripts;
+    const context = sourceList && sourceList.length > 0
+      ? sourceList.slice(-8).map((t) => `[${t.speaker.toUpperCase()}]: ${t.text}`).join('\n')
+      : messages.slice(-4).map((m) => `${m.role}: ${m.text}`).join('\n');
+    executePrompt(`Based on this ongoing discussion:\n\n${context}\n\nSuggest 3 sharp, strategic follow-up questions I can ask right now to steer the conversation effectively.`);
+  };
+
+  const handleShorten = async () => {
+    const lastModel = [...messages].reverse().find((m) => m.role === 'model' && m.text && !m.isError);
+    if (!lastModel) return;
+    executePrompt(`Shorten the following answer into 2-3 crisp, punchy bullet points that are quick and easy to say aloud in an interview:\n\n${lastModel.text}`);
+  };
+
+  const clearMeetingTranscripts = async () => {
+    await window.ghostAPI.clearRollingTranscript?.();
+    setMeetingTranscripts([]);
+  };
+
   // Keep toggleListeningRef updated for hotkeys
   useEffect(() => {
     toggleListeningRef.current = toggleListening;
@@ -535,10 +658,10 @@ const App: React.FC = () => {
         config.provider === 'gemini'
           ? !!config.geminiApiKey?.trim()
           : config.provider === 'groq'
-          ? !!config.groqApiKey?.trim()
-          : config.provider === 'openrouter'
-          ? !!config.openrouterApiKey?.trim()
-          : (config.routerPreset === 'pollinations' || !!config.routerBaseUrl?.trim());
+            ? !!config.groqApiKey?.trim()
+            : config.provider === 'openrouter'
+              ? !!config.openrouterApiKey?.trim()
+              : (config.routerPreset === 'pollinations' || !!config.routerBaseUrl?.trim());
 
       if (!hasActiveKey) {
         setIsSettingsOpen(true);
@@ -612,7 +735,7 @@ const App: React.FC = () => {
 
   const handleSaveConfig = async () => {
     if (window.ghostAPI) {
-      await window.ghostAPI.saveConfig(config);
+      await window.ghostAPI.saveConfig({ ...config, selectedOutputDevice });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
       setIsSettingsOpen(false);
@@ -623,10 +746,10 @@ const App: React.FC = () => {
     config.provider === 'gemini'
       ? !!config.geminiApiKey?.trim()
       : config.provider === 'groq'
-      ? !!config.groqApiKey?.trim()
-      : config.provider === 'openrouter'
-      ? !!config.openrouterApiKey?.trim()
-      : (config.routerPreset === 'pollinations' || !!config.routerBaseUrl?.trim());
+        ? !!config.groqApiKey?.trim()
+        : config.provider === 'openrouter'
+          ? !!config.openrouterApiKey?.trim()
+          : (config.routerPreset === 'pollinations' || !!config.routerBaseUrl?.trim());
   const messageCount = messages.length;
 
   return (
@@ -698,26 +821,26 @@ const App: React.FC = () => {
                   config.provider === 'groq'
                     ? 'rgba(249, 115, 22, 0.15)'
                     : config.provider === 'openrouter'
-                    ? 'rgba(168, 85, 247, 0.15)'
-                    : config.provider === 'router'
-                    ? 'rgba(16, 185, 129, 0.15)'
-                    : 'rgba(59, 130, 246, 0.15)',
+                      ? 'rgba(168, 85, 247, 0.15)'
+                      : config.provider === 'router'
+                        ? 'rgba(16, 185, 129, 0.15)'
+                        : 'rgba(59, 130, 246, 0.15)',
                 color:
                   config.provider === 'groq'
                     ? '#fdba74'
                     : config.provider === 'openrouter'
-                    ? '#d8b4fe'
-                    : config.provider === 'router'
-                    ? '#6ee7b7'
-                    : '#93c5fd',
+                      ? '#d8b4fe'
+                      : config.provider === 'router'
+                        ? '#6ee7b7'
+                        : '#93c5fd',
                 border:
                   config.provider === 'groq'
                     ? '1px solid rgba(249, 115, 22, 0.35)'
                     : config.provider === 'openrouter'
-                    ? '1px solid rgba(168, 85, 247, 0.35)'
-                    : config.provider === 'router'
-                    ? '1px solid rgba(16, 185, 129, 0.35)'
-                    : '1px solid rgba(59, 130, 246, 0.35)',
+                      ? '1px solid rgba(168, 85, 247, 0.35)'
+                      : config.provider === 'router'
+                        ? '1px solid rgba(16, 185, 129, 0.35)'
+                        : '1px solid rgba(59, 130, 246, 0.35)',
               }}
             >
               <Sparkles className="w-2.5 h-2.5" />
@@ -725,10 +848,10 @@ const App: React.FC = () => {
                 {config.provider === 'groq'
                   ? `groq:${config.groqModel.split('-')[0]}`
                   : config.provider === 'openrouter'
-                  ? `openrouter:${config.openrouterModel.replace(':free', '').split('/').pop()?.slice(0, 10)}`
-                  : config.provider === 'router'
-                  ? `router:${config.routerPreset || 'custom'}`
-                  : config.model.split('-').slice(0, 2).join('-')}
+                    ? `openrouter:${config.openrouterModel.replace(':free', '').split('/').pop()?.slice(0, 10)}`
+                    : config.provider === 'router'
+                      ? `router:${config.routerPreset || 'custom'}`
+                      : config.model.split('-').slice(0, 2).join('-')}
               </span>
             </button>
           </div>
@@ -1029,30 +1152,43 @@ const App: React.FC = () => {
                       <span className="opacity-60 font-mono">Ctrl+⇧+S</span>
                     </button>
 
-                    {/* Push-to-Listen Quick Toggle */}
+                    {/* Push-to-Listen (User Microphone) */}
                     <button
                       onClick={toggleListening}
                       disabled={isStreaming || isTranscribing}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all ${
-                        isListening
-                          ? 'bg-red-500/20 text-red-300 border border-red-500/50 shadow-sm'
-                          : 'bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 hover:text-white hover:border-zinc-500'
-                      }`}
-                      title="Push to Listen (Interview / Speaker Voice) [F9 or Ctrl+Shift+L]"
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all ${isListening
+                        ? 'bg-red-500/20 text-red-300 border border-red-500/50 shadow-sm'
+                        : 'bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 hover:text-white hover:border-zinc-500'
+                        }`}
+                      title="Push to Listen (Your Microphone) [F9 or Ctrl+Shift+L]"
                     >
                       {isListening ? (
                         <>
                           <Radio className="w-3 h-3 text-red-400 animate-pulse" />
-                          <span>Recording...</span>
+                          <span>Mic: Recording...</span>
                           <span className="opacity-70 font-mono text-[9px] bg-red-950/60 px-1 rounded">F9</span>
                         </>
                       ) : (
                         <>
                           <Mic className="w-3 h-3 text-emerald-400" />
-                          <span>Push-to-Listen</span>
+                          <span>Mic: Dictate</span>
                           <span className="opacity-60 font-mono text-[9px] bg-zinc-700/50 px-1 rounded">F9</span>
                         </>
                       )}
+                    </button>
+
+                    {/* Meeting Audio Loopback (Rust WASAPI / Speakers) */}
+                    <button
+                      onClick={toggleMeetingAudio}
+                      disabled={isStreaming}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all ${isMeetingListening
+                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-sm animate-pulse'
+                        : 'bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 hover:text-white hover:border-cyan-500/50'
+                        }`}
+                      title="Sync Meeting Audio (Captures Interviewer / Speaker Output via Rust WASAPI)"
+                    >
+                      <Headphones className={`w-3 h-3 ${isMeetingListening ? 'text-cyan-400' : 'text-cyan-500'}`} />
+                      <span>{isMeetingListening ? 'Meeting: Listening' : 'Sync Meeting'}</span>
                     </button>
 
                     {messageCount > 0 && !isStreaming && (
@@ -1066,6 +1202,90 @@ const App: React.FC = () => {
                       </button>
                     )}
                   </div>
+
+                  {/* ── Natively Meeting Quick Action Pills ── */}
+                  <div className="flex items-center gap-1 mb-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+                    <button
+                      onClick={handleWhatToAnswer}
+                      disabled={isStreaming}
+                      className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all bg-blue-500/15 text-blue-300 border border-blue-500/30 hover:bg-blue-500/25 disabled:opacity-40"
+                      title="Analyze recent meeting audio and suggest the best response"
+                    >
+                      <span>🎯</span>
+                      <span>What to answer?</span>
+                    </button>
+                    <button
+                      onClick={handleRecapMeeting}
+                      disabled={isStreaming}
+                      className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 disabled:opacity-40"
+                      title="Summarize key points from meeting transcript"
+                    >
+                      <span>📋</span>
+                      <span>Recap</span>
+                    </button>
+                    <button
+                      onClick={handleFollowUp}
+                      disabled={isStreaming}
+                      className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 disabled:opacity-40"
+                      title="Suggest 3 smart follow-up questions"
+                    >
+                      <span>💡</span>
+                      <span>Follow Up</span>
+                    </button>
+                    <button
+                      onClick={handleShorten}
+                      disabled={isStreaming}
+                      className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all bg-purple-500/15 text-purple-300 border border-purple-500/30 hover:bg-purple-500/25 disabled:opacity-40"
+                      title="Condense previous answer into speakable bullet points"
+                    >
+                      <span>✂️</span>
+                      <span>Shorten</span>
+                    </button>
+                    {meetingTranscripts.length > 0 && (
+                      <button
+                        onClick={() => setShowTranscriptDrawer(!showTranscriptDrawer)}
+                        className={`shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all ml-auto ${showTranscriptDrawer
+                          ? 'bg-zinc-700 text-white'
+                          : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
+                          }`}
+                      >
+                        <ListOrdered className="w-2.5 h-2.5" />
+                        <span>Transcript ({meetingTranscripts.length})</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* ── Meeting Transcript Live Drawer ── */}
+                  {showTranscriptDrawer && meetingTranscripts.length > 0 && (
+                    <div
+                      className="rounded-xl p-2.5 mb-2 text-xs space-y-1.5 max-h-36 overflow-y-auto transition-all"
+                      style={{
+                        background: 'rgba(24, 24, 27, 0.95)',
+                        border: '1px solid rgba(6, 182, 212, 0.3)',
+                        scrollbarWidth: 'thin',
+                      }}
+                    >
+                      <div className="flex items-center justify-between pb-1 border-b border-zinc-800">
+                        <span className="text-[10px] font-semibold text-cyan-400 flex items-center gap-1">
+                          <Volume2 className="w-3 h-3" /> Live Meeting Audio Feed
+                        </span>
+                        <button
+                          onClick={clearMeetingTranscripts}
+                          className="text-[9px] text-zinc-500 hover:text-red-400 transition-colors"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      {meetingTranscripts.slice(-8).map((t) => (
+                        <div key={t.id} className="text-[11px] leading-relaxed flex gap-1.5">
+                          <span className={`font-semibold shrink-0 ${t.speaker === 'meeting' ? 'text-cyan-400' : 'text-emerald-400'}`}>
+                            {t.speaker === 'meeting' ? '🔊 Speaker:' : '🎙️ You:'}
+                          </span>
+                          <span className="text-zinc-200">{t.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   <div
                     className="flex items-center gap-1.5 rounded-xl px-2 py-1.5 transition-all"
@@ -1086,8 +1306,8 @@ const App: React.FC = () => {
                         isListening
                           ? 'Listening to spoken words...'
                           : hasApiKey
-                          ? 'Ask anything or press F9 to speak...'
-                          : 'Set API key in Settings first...'
+                            ? 'Ask anything or press F9 to speak...'
+                            : 'Set API key in Settings first...'
                       }
                       disabled={isStreaming || !hasApiKey || isListening}
                       className="flex-1 bg-transparent text-xs outline-none px-1"
@@ -1098,11 +1318,10 @@ const App: React.FC = () => {
                     <button
                       onClick={toggleListening}
                       disabled={isStreaming || isTranscribing}
-                      className={`p-1.5 rounded-lg transition-all ${
-                        isListening
-                          ? 'bg-red-500/25 text-red-300 border border-red-500/40 shadow-sm'
-                          : 'hover:bg-white/10 text-zinc-400 hover:text-white'
-                      }`}
+                      className={`p-1.5 rounded-lg transition-all ${isListening
+                        ? 'bg-red-500/25 text-red-300 border border-red-500/40 shadow-sm'
+                        : 'hover:bg-white/10 text-zinc-400 hover:text-white'
+                        }`}
                       title={isListening ? 'Stop listening & send (F9)' : 'Push to Listen [F9 or Ctrl+Shift+L]'}
                     >
                       {isListening ? (
@@ -1337,44 +1556,40 @@ const App: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setConfig({ ...config, provider: 'gemini' })}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all text-center ${
-                    config.provider === 'gemini'
-                      ? 'bg-blue-600 text-white shadow font-semibold'
-                      : 'text-white/40 hover:text-white/70'
-                  }`}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all text-center ${config.provider === 'gemini'
+                    ? 'bg-blue-600 text-white shadow font-semibold'
+                    : 'text-white/40 hover:text-white/70'
+                    }`}
                 >
                   Google Gemini
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfig({ ...config, provider: 'groq' })}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all text-center ${
-                    config.provider === 'groq'
-                      ? 'bg-orange-600 text-white shadow font-semibold'
-                      : 'text-white/40 hover:text-white/70'
-                  }`}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all text-center ${config.provider === 'groq'
+                    ? 'bg-orange-600 text-white shadow font-semibold'
+                    : 'text-white/40 hover:text-white/70'
+                    }`}
                 >
                   Groq Cloud ⚡
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfig({ ...config, provider: 'openrouter' })}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all text-center ${
-                    config.provider === 'openrouter'
-                      ? 'bg-purple-600 text-white shadow font-semibold'
-                      : 'text-white/40 hover:text-white/70'
-                  }`}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all text-center ${config.provider === 'openrouter'
+                    ? 'bg-purple-600 text-white shadow font-semibold'
+                    : 'text-white/40 hover:text-white/70'
+                    }`}
                 >
                   OpenRouter 🌐 (Free)
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfig({ ...config, provider: 'router' })}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all text-center ${
-                    config.provider === 'router'
-                      ? 'bg-emerald-600 text-white shadow font-semibold'
-                      : 'text-white/40 hover:text-white/70'
-                  }`}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all text-center ${config.provider === 'router'
+                    ? 'bg-emerald-600 text-white shadow font-semibold'
+                    : 'text-white/40 hover:text-white/70'
+                    }`}
                 >
                   Free Router 🔀
                 </button>
@@ -1546,10 +1761,10 @@ const App: React.FC = () => {
                     }}
                   >
                     <option value="llama-3.3-70b-versatile" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>llama-3.3-70b-versatile — Flagship Reasoning & Coding (280 tok/s) ⚡</option>
+                    <option value="llama-3.1-8b-instant" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>llama-3.1-8b-instant — Ultra-Fast Lightweight Model (~560 tok/s) ⚡</option>
                     <option value="deepseek-r1-distill-qwen-32b" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>deepseek-r1-distill-qwen-32b — Deep Reasoning, Math & Logic (320 tok/s) 🧠</option>
                     <option value="qwen-2.5-coder-32b" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>qwen-2.5-coder-32b — Specialized Code Synthesis & Debugging 💻</option>
-                    <option value="openai/gpt-oss-120b" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>openai/gpt-oss-120b — High-Capacity Open Weights Model 🌐</option>
-                    <option value="openai/gpt-oss-20b" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>openai/gpt-oss-20b — Ultra-Fast Lightweight Model (400 tok/s) ⚡</option>
+                    <option value="gemma2-9b-it" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>gemma2-9b-it — Google Gemma 2 on Groq Hardware 🌐</option>
                   </select>
                 </div>
               </>
@@ -1760,8 +1975,8 @@ const App: React.FC = () => {
                       config.routerPreset === 'pollinations'
                         ? 'Not required for Pollinations AI'
                         : config.routerPreset === 'ollama'
-                        ? 'Not required for local Ollama'
-                        : 'csk-... or router token'
+                          ? 'Not required for local Ollama'
+                          : 'csk-... or router token'
                     }
                     className="w-full rounded-lg px-3 py-2 text-xs outline-none font-mono transition-all"
                     style={{
@@ -1823,10 +2038,10 @@ const App: React.FC = () => {
                   {config.routerPreset === 'pollinations'
                     ? '🎁 Pollinations AI requires ZERO API key and gives 100% free unlimited tokens for text and code.'
                     : config.routerPreset === 'cerebras'
-                    ? '⚡ Cerebras runs inference on Wafer-Scale chips at 2,000+ tokens/second with generous daily free tiers.'
-                    : config.routerPreset === 'ollama'
-                    ? '💻 Ollama runs 100% locally on your machine with total privacy and zero token cost.'
-                    : '🔀 Any OpenAI-compatible router endpoint (LiteLLM, vLLM, Bifrost, DeepInfra) can be connected.'}
+                      ? '⚡ Cerebras runs inference on Wafer-Scale chips at 2,000+ tokens/second with generous daily free tiers.'
+                      : config.routerPreset === 'ollama'
+                        ? '💻 Ollama runs 100% locally on your machine with total privacy and zero token cost.'
+                        : '🔀 Any OpenAI-compatible router endpoint (LiteLLM, vLLM, Bifrost, DeepInfra) can be connected.'}
                 </div>
               </>
             )}
@@ -1888,6 +2103,37 @@ const App: React.FC = () => {
               />
             </div>
 
+            {/* ── Audio Device Configuration (Rust Native Module) ── */}
+            <div className="space-y-2 pt-1 border-t border-white/5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold flex items-center gap-1.5" style={{ color: '#f4f4f5' }}>
+                  <Headphones className="w-3.5 h-3.5 text-cyan-400" />
+                  Meeting Audio Output (Loopback)
+                </label>
+                <span className="text-[10px] font-mono text-cyan-400">Rust WASAPI</span>
+              </div>
+              <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                Select the speaker or headphone device where you hear the interviewer or meeting participants:
+              </p>
+              <select
+                value={selectedOutputDevice}
+                onChange={(e) => setSelectedOutputDevice(e.target.value)}
+                className="w-full rounded-lg px-2.5 py-1.5 text-xs outline-none transition-all cursor-pointer"
+                style={{
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  color: 'white',
+                }}
+              >
+                <option value="" className="bg-zinc-900 text-white">Default Audio Output (Auto-detect)</option>
+                {audioDevices.outputs.map((dev) => (
+                  <option key={dev.id} value={dev.id} className="bg-zinc-900 text-white">
+                    {dev.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Ghost Mode Info Box */}
             <div
               className="p-3 rounded-xl text-[11px] leading-relaxed"
@@ -1934,72 +2180,72 @@ const EmptyState: React.FC<{
   hasApiKey,
   provider,
 }) => (
-  <div className="h-full flex flex-col items-center justify-center text-center p-6 py-8">
-    <div
-      className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
-      style={{
-        background: 'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(99,102,241,0.1))',
-        border: '1px solid rgba(59,130,246,0.2)',
-        boxShadow: '0 8px 32px rgba(59,130,246,0.15)',
-      }}
-    >
-      <Sparkles className="w-7 h-7" style={{ color: '#60a5fa' }} />
-    </div>
-    <h3 className="text-sm font-semibold mb-1.5" style={{ color: 'white' }}>Ghost AI Ready</h3>
-    <p className="text-xs mb-5 leading-relaxed max-w-[260px]" style={{ color: 'rgba(255,255,255,0.4)' }}>
-      {hasApiKey
-        ? 'Completely invisible on screen share. Ask anything or capture your screen for instant AI analysis.'
-        : provider === 'openrouter'
-        ? 'Add your OpenRouter key to get started with free models (:free). This overlay is invisible in all screen share apps.'
-        : provider === 'groq'
-        ? 'Add your Groq API key to get started. This overlay is invisible in all screen share apps.'
-        : provider === 'router'
-        ? 'Configure your Free Router endpoint in Settings to get started. This overlay is invisible in all screen share apps.'
-        : 'Add your free Gemini API key to get started. This overlay is invisible in all screen share apps.'}
-    </p>
-    {!hasApiKey ? (
-      <button
-        onClick={onOpenSettings}
-        className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all"
-        style={{ background: '#2563eb', color: 'white' }}
+    <div className="h-full flex flex-col items-center justify-center text-center p-6 py-8">
+      <div
+        className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
+        style={{
+          background: 'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(99,102,241,0.1))',
+          border: '1px solid rgba(59,130,246,0.2)',
+          boxShadow: '0 8px 32px rgba(59,130,246,0.15)',
+        }}
       >
-        <Settings className="w-3.5 h-3.5" />
-        {provider === 'openrouter'
-          ? 'Add OpenRouter Key'
-          : provider === 'groq'
-          ? 'Add Groq API Key'
-          : provider === 'router'
-          ? 'Configure Free Router'
-          : 'Add Gemini API Key'}
-      </button>
-    ) : (
-      <div className="flex flex-col gap-2 items-center">
+        <Sparkles className="w-7 h-7" style={{ color: '#60a5fa' }} />
+      </div>
+      <h3 className="text-sm font-semibold mb-1.5" style={{ color: 'white' }}>Ghost AI Ready</h3>
+      <p className="text-xs mb-5 leading-relaxed max-w-[260px]" style={{ color: 'rgba(255,255,255,0.4)' }}>
+        {hasApiKey
+          ? 'Completely invisible on screen share. Ask anything or capture your screen for instant AI analysis.'
+          : provider === 'openrouter'
+            ? 'Add your OpenRouter key to get started with free models (:free). This overlay is invisible in all screen share apps.'
+            : provider === 'groq'
+              ? 'Add your Groq API key to get started. This overlay is invisible in all screen share apps.'
+              : provider === 'router'
+                ? 'Configure your Free Router endpoint in Settings to get started. This overlay is invisible in all screen share apps.'
+                : 'Add your free Gemini API key to get started. This overlay is invisible in all screen share apps.'}
+      </p>
+      {!hasApiKey ? (
         <button
-          onClick={onCapture}
+          onClick={onOpenSettings}
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all"
           style={{ background: '#2563eb', color: 'white' }}
         >
-          <Camera className="w-3.5 h-3.5" />
-          Capture & Analyze Screen
+          <Settings className="w-3.5 h-3.5" />
+          {provider === 'openrouter'
+            ? 'Add OpenRouter Key'
+            : provider === 'groq'
+              ? 'Add Groq API Key'
+              : provider === 'router'
+                ? 'Configure Free Router'
+                : 'Add Gemini API Key'}
         </button>
-        <div className="flex flex-col gap-1 text-[11px] mt-2" style={{ color: 'rgba(255,255,255,0.3)' }}>
-          <div>
-            <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono mr-1.5" style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>Ctrl+\</kbd>
-            Toggle visibility
-          </div>
-          <div>
-            <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono mr-1.5" style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>Ctrl+Shift+S</kbd>
-            Instant screen capture
-          </div>
-          <div>
-            <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono mr-1.5" style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>F9 / Ctrl+Shift+L</kbd>
-            Push to Listen (Speaker voice)
+      ) : (
+        <div className="flex flex-col gap-2 items-center">
+          <button
+            onClick={onCapture}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all"
+            style={{ background: '#2563eb', color: 'white' }}
+          >
+            <Camera className="w-3.5 h-3.5" />
+            Capture & Analyze Screen
+          </button>
+          <div className="flex flex-col gap-1 text-[11px] mt-2" style={{ color: 'rgba(255,255,255,0.3)' }}>
+            <div>
+              <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono mr-1.5" style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>Ctrl+\</kbd>
+              Toggle visibility
+            </div>
+            <div>
+              <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono mr-1.5" style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>Ctrl+Shift+S</kbd>
+              Instant screen capture
+            </div>
+            <div>
+              <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono mr-1.5" style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>F9 / Ctrl+Shift+L</kbd>
+              Push to Listen (Speaker voice)
+            </div>
           </div>
         </div>
-      </div>
-    )}
-  </div>
-);
+      )}
+    </div>
+  );
 
 const MessageBubble: React.FC<{ msg: Message; provider?: 'gemini' | 'groq' | 'openrouter' | 'router' }> = ({ msg, provider = 'gemini' }) => {
   const [copied, setCopied] = useState(false);
@@ -2070,10 +2316,10 @@ const MessageBubble: React.FC<{ msg: Message; provider?: 'gemini' | 'groq' | 'op
               {provider === 'groq'
                 ? 'Groq is thinking...'
                 : provider === 'openrouter'
-                ? 'OpenRouter is thinking...'
-                : provider === 'router'
-                ? 'Free Router is thinking...'
-                : 'Gemini is analyzing...'}
+                  ? 'OpenRouter is thinking...'
+                  : provider === 'router'
+                    ? 'Free Router is thinking...'
+                    : 'Gemini is analyzing...'}
             </span>
           </div>
         )}

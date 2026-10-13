@@ -20,6 +20,7 @@
     "openrouterService.ts",
     "routerService.ts",
     "screenshotService.ts",
-    "storeService.ts"
+    "storeService.ts",
+    "nativeAudioService.ts"
   ]
 }

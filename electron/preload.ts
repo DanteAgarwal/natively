@@ -12,6 +12,15 @@ export interface GhostAPI {
   saveConfig: (config: any) => Promise<any>;
   testApiKey: (key: string, provider?: 'gemini' | 'groq' | 'openrouter' | 'router', options?: { baseUrl?: string; model?: string }) => Promise<{ success: boolean; error?: string }>;
 
+  // Meeting Audio (Rust Native Module - Speaker / System Audio)
+  startMeetingAudio: (deviceId?: string) => Promise<{ success: boolean; error?: string }>;
+  stopMeetingAudio: () => Promise<{ success: boolean; error?: string }>;
+  getAudioDevices: () => Promise<{ inputs: Array<{ id: string; name: string }>; outputs: Array<{ id: string; name: string }> }>;
+  getRollingTranscript: () => Promise<Array<{ id: string; speaker: 'meeting' | 'user'; text: string; timestamp: number }>>;
+  clearRollingTranscript: () => Promise<void>;
+  onMeetingTranscript: (callback: (item: { id: string; speaker: 'meeting' | 'user'; text: string; timestamp: number }) => void) => () => void;
+  onMeetingStatus: (callback: (status: { isCapturing: boolean; error?: string }) => void) => () => void;
+
   // Window Controls
   toggleGhostMode: () => Promise<boolean>;
   setClickThrough: (enabled: boolean) => Promise<boolean>;
@@ -42,6 +51,13 @@ const api: GhostAPI = {
   getConfig: () => ipcRenderer.invoke('ghost:get-config'),
   saveConfig: (config) => ipcRenderer.invoke('ghost:save-config', config),
   testApiKey: (key, provider, options) => ipcRenderer.invoke('ghost:test-api-key', { apiKey: key, provider, baseUrl: options?.baseUrl, model: options?.model }),
+
+  // Meeting Audio
+  startMeetingAudio: (deviceId) => ipcRenderer.invoke('ghost:start-meeting-audio', { deviceId }),
+  stopMeetingAudio: () => ipcRenderer.invoke('ghost:stop-meeting-audio'),
+  getAudioDevices: () => ipcRenderer.invoke('ghost:get-audio-devices'),
+  getRollingTranscript: () => ipcRenderer.invoke('ghost:get-rolling-transcript'),
+  clearRollingTranscript: () => ipcRenderer.invoke('ghost:clear-rolling-transcript'),
 
   toggleGhostMode: () => ipcRenderer.invoke('ghost:toggle-ghost-mode'),
   setClickThrough: (enabled: boolean) => ipcRenderer.invoke('ghost:set-click-through', enabled),
@@ -98,6 +114,18 @@ const api: GhostAPI = {
     const handler = () => callback();
     ipcRenderer.on('ghost:panic-hide', handler);
     return () => ipcRenderer.removeListener('ghost:panic-hide', handler);
+  },
+
+  onMeetingTranscript: (callback) => {
+    const handler = (_event: any, item: any) => callback(item);
+    ipcRenderer.on('ghost:meeting-transcript', handler);
+    return () => ipcRenderer.removeListener('ghost:meeting-transcript', handler);
+  },
+
+  onMeetingStatus: (callback) => {
+    const handler = (_event: any, status: any) => callback(status);
+    ipcRenderer.on('ghost:meeting-status', handler);
+    return () => ipcRenderer.removeListener('ghost:meeting-status', handler);
   }
 };
 

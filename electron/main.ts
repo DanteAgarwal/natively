@@ -6,6 +6,7 @@ import { openrouterService } from './openrouterService';
 import { routerService } from './routerService';
 import { captureScreen } from './screenshotService';
 import { configService } from './storeService';
+import { nativeAudioService } from './nativeAudioService';
 
 try {
   require('dotenv').config();
@@ -294,18 +295,34 @@ async function streamAiResponse(params: {
   };
 
   // Screen capture & vision handling:
-  // If Groq is primary (pure text inference) and an image is attached, route vision to OpenRouter or Gemini
-  if (params.imageBase64 && primaryProvider === 'groq') {
+  // If Groq or a text-only router is active and an image is attached, route vision to OpenRouter or Gemini
+  if (params.imageBase64 && (primaryProvider === 'groq' || (primaryProvider === 'router' && config.routerPreset !== 'custom'))) {
     const geminiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
     const openrouterKey = config.openrouterApiKey || process.env.OPENROUTER_API_KEY;
 
     if (geminiKey?.trim()) {
-      params.onChunk(`> ℹ️ *Groq is active for text. Routing screen capture to Gemini Vision...*\n\n`);
-      return await geminiService.streamGenerate(streamParams);
+      try {
+        params.onChunk(`> ℹ️ *${primaryProvider.toUpperCase()} is active for text. Routing screen capture to Gemini Vision...*\n\n`);
+        return await geminiService.streamGenerate(streamParams);
+      } catch (geminiErr: any) {
+        if (openrouterKey?.trim()) {
+          params.onChunk(`\n\n> ⚠️ *Gemini Vision: ${geminiErr?.message || 'Transient failure'}. Auto-falling back to OpenRouter Vision...*\n\n`);
+          return await openrouterService.streamGenerate(streamParams);
+        }
+        throw geminiErr;
+      }
     } else if (openrouterKey?.trim()) {
-      params.onChunk(`> ℹ️ *Groq is active for text. Routing screen capture to OpenRouter Free Vision...*\n\n`);
-      return await openrouterService.streamGenerate(streamParams);
-    } else {
+      try {
+        params.onChunk(`> ℹ️ *${primaryProvider.toUpperCase()} is active for text. Routing screen capture to OpenRouter Free Vision...*\n\n`);
+        return await openrouterService.streamGenerate(streamParams);
+      } catch (orErr: any) {
+        if (geminiKey?.trim()) {
+          params.onChunk(`\n\n> ⚠️ *OpenRouter Vision: ${orErr?.message || 'Transient failure'}. Auto-falling back to Gemini Vision...*\n\n`);
+          return await geminiService.streamGenerate(streamParams);
+        }
+        throw orErr;
+      }
+    } else if (primaryProvider === 'groq') {
       throw new Error(
         'Groq currently does not support screen/image analysis. ' +
         'Please add a free OpenRouter key or Gemini key in Settings to enable screen vision analysis.'
@@ -455,28 +472,78 @@ function setupIpcHandlers(): void {
       const hasGroqKey = !!(config.groqApiKey || process.env.GROQ_API_KEY)?.trim();
       const hasGeminiKey = !!(config.geminiApiKey || process.env.GEMINI_API_KEY)?.trim();
 
+      let transcribedText = '';
+      let engine = '';
+
       if (hasGroqKey) {
         try {
-          const text = await groqService.transcribeAudio(buffer, mimeType || 'audio/webm');
-          return { success: true, text, engine: 'groq-whisper' };
+          transcribedText = await groqService.transcribeAudio(buffer, mimeType || 'audio/webm');
+          engine = 'groq-whisper';
         } catch (groqErr: any) {
           console.warn('[Voice] Groq Whisper failed, trying Gemini if available:', groqErr?.message || groqErr);
           if (hasGeminiKey) {
-            const text = await geminiService.transcribeAudio(buffer, mimeType || 'audio/webm');
-            return { success: true, text, engine: 'gemini-speech' };
+            transcribedText = await geminiService.transcribeAudio(buffer, mimeType || 'audio/webm');
+            engine = 'gemini-speech';
+          } else {
+            throw groqErr;
           }
-          throw groqErr;
         }
       } else if (hasGeminiKey) {
-        const text = await geminiService.transcribeAudio(buffer, mimeType || 'audio/webm');
-        return { success: true, text, engine: 'gemini-speech' };
+        transcribedText = await geminiService.transcribeAudio(buffer, mimeType || 'audio/webm');
+        engine = 'gemini-speech';
       } else {
         throw new Error('Please configure a free Groq API key or Gemini API key in Settings to use Push-to-Listen voice transcription.');
       }
+
+      if (transcribedText) {
+        nativeAudioService.addTranscriptItem({
+          id: `${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          speaker: 'user',
+          text: transcribedText,
+          timestamp: Date.now(),
+        });
+      }
+
+      return { success: true, text: transcribedText, engine };
     } catch (err: any) {
       console.error('[Voice] Transcription error:', err);
       return { success: false, text: '', error: err?.message || 'Speech-to-text transcription failed.' };
     }
+  });
+
+  // ── 2.9 Real-Time Meeting & System Audio (Rust WASAPI / ScreenCaptureKit) ──
+  nativeAudioService.onTranscript((item) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ghost:meeting-transcript', item);
+    }
+  });
+
+  nativeAudioService.onStatus((status) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ghost:meeting-status', status);
+    }
+  });
+
+  ipcMain.handle('ghost:start-meeting-audio', (_event, { deviceId }: { deviceId?: string } = {}) => {
+    const cleanDeviceId = (deviceId && deviceId !== 'default' && deviceId.trim()) ? deviceId.trim() : undefined;
+    return nativeAudioService.startSystemCapture(cleanDeviceId);
+  });
+
+  ipcMain.handle('ghost:stop-meeting-audio', () => {
+    return nativeAudioService.stopSystemCapture();
+  });
+
+  ipcMain.handle('ghost:get-audio-devices', () => {
+    return nativeAudioService.getAudioDevices();
+  });
+
+  ipcMain.handle('ghost:get-rolling-transcript', () => {
+    return nativeAudioService.getRollingTranscript();
+  });
+
+  ipcMain.handle('ghost:clear-rolling-transcript', () => {
+    nativeAudioService.clearTranscript();
+    return true;
   });
 
   // ── 3. Settings & Config ──
@@ -519,8 +586,8 @@ function setupIpcHandlers(): void {
   ipcMain.handle('ghost:set-window-height', (_event, height: number) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     const [currentWidth] = mainWindow.getSize();
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const maxHeight = Math.round(primaryDisplay.workArea.height * 0.95);
+    const currentDisplay = screen.getDisplayMatching(mainWindow.getBounds()) || screen.getPrimaryDisplay();
+    const maxHeight = Math.round(currentDisplay.workArea.height * 0.95);
     const targetHeight = Math.min(Math.max(height, 52), maxHeight);
     mainWindow.setSize(currentWidth, targetHeight, true);
   });

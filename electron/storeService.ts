@@ -16,6 +16,7 @@ export interface AppConfig {
   groqModel: string;
   temperature: number;
   autoFallback: boolean;
+  selectedAudioOutputDevice?: string;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -33,6 +34,7 @@ const DEFAULT_CONFIG: AppConfig = {
   groqModel: 'llama-3.3-70b-versatile',
   temperature: 0.7,
   autoFallback: true,
+  selectedAudioOutputDevice: '',
 };
 
 class ConfigService {
@@ -63,7 +65,7 @@ class ConfigService {
     }
 
     let savedGroqModel = this.store.get('groqModel') || DEFAULT_CONFIG.groqModel;
-    const obsoleteGroq = ['llama-3.2-11b-vision-preview', 'llama-3.1-8b-instant', 'deepseek-r1-distill-llama-70b'];
+    const obsoleteGroq = ['llama-3.2-11b-vision-preview', 'deepseek-r1-distill-llama-70b', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b'];
     if (obsoleteGroq.includes(savedGroqModel)) {
       savedGroqModel = 'llama-3.3-70b-versatile';
       this.store.set('groqModel', savedGroqModel);
@@ -78,21 +80,30 @@ class ConfigService {
     const envRouterUrl = process.env.ROUTER_BASE_URL || (process.env as any)['ROUTER_BASE_URL '];
     const envRouterModel = process.env.ROUTER_MODEL || (process.env as any)['ROUTER_MODEL '];
 
+    const getStoredOrEnv = (storeKey: keyof AppConfig, envVal?: string) => {
+      const stored = this.store.get(storeKey);
+      if (stored !== undefined && stored !== null) {
+        return cleanKey(String(stored));
+      }
+      return cleanKey(envVal) || '';
+    };
+
     return {
       provider: (this.store.get('provider') as any) || DEFAULT_CONFIG.provider,
-      geminiApiKey: cleanKey(this.store.get('geminiApiKey')) || cleanKey(envGemini) || '',
-      groqApiKey: cleanKey(this.store.get('groqApiKey')) || cleanKey(envGroq) || '',
-      openrouterApiKey: cleanKey(this.store.get('openrouterApiKey')) || cleanKey(envOpenRouter) || '',
+      geminiApiKey: getStoredOrEnv('geminiApiKey', envGemini),
+      groqApiKey: getStoredOrEnv('groqApiKey', envGroq),
+      openrouterApiKey: getStoredOrEnv('openrouterApiKey', envOpenRouter),
       openrouterModel: this.store.get('openrouterModel') || DEFAULT_CONFIG.openrouterModel,
       routerPreset: this.store.get('routerPreset') || DEFAULT_CONFIG.routerPreset,
       routerBaseUrl: this.store.get('routerBaseUrl') || cleanKey(envRouterUrl) || DEFAULT_CONFIG.routerBaseUrl,
-      routerApiKey: cleanKey(this.store.get('routerApiKey')) || cleanKey(envRouterKey) || '',
+      routerApiKey: getStoredOrEnv('routerApiKey', envRouterKey),
       routerModel: this.store.get('routerModel') || cleanKey(envRouterModel) || DEFAULT_CONFIG.routerModel,
       systemInstruction: this.store.get('systemInstruction') || DEFAULT_CONFIG.systemInstruction,
       model: savedModel,
       groqModel: savedGroqModel,
       temperature: this.store.get('temperature') ?? DEFAULT_CONFIG.temperature,
       autoFallback: this.store.get('autoFallback') ?? DEFAULT_CONFIG.autoFallback,
+      selectedAudioOutputDevice: this.store.get('selectedAudioOutputDevice') || '',
     };
   }
 
@@ -113,6 +124,7 @@ class ConfigService {
     if (newConfig.groqModel !== undefined) this.store.set('groqModel', newConfig.groqModel);
     if (newConfig.temperature !== undefined) this.store.set('temperature', newConfig.temperature);
     if (newConfig.autoFallback !== undefined) this.store.set('autoFallback', newConfig.autoFallback);
+    if (newConfig.selectedAudioOutputDevice !== undefined) this.store.set('selectedAudioOutputDevice', newConfig.selectedAudioOutputDevice);
     return this.getConfig();
   }
 }

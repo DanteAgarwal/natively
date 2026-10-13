@@ -105,13 +105,9 @@ export class GeminiService {
 
       if (modelName.includes('3.8') || modelName.includes('3.7')) {
         genConfig.thinkingConfig = {
-          thinkingLevel: 'low',
+          thinkingBudget: 1024,
         };
-      } else if (modelName.includes('3.5-flash-lite')) {
-        genConfig.thinkingConfig = {
-          thinkingLevel: 'minimal',
-        };
-      } else if (modelName.includes('2.5')) {
+      } else if (modelName.includes('3.5-flash-lite') || modelName.includes('2.5')) {
         genConfig.thinkingConfig = {
           thinkingBudget: 0,
         };

@@ -16,71 +16,73 @@ export const ACTIVE_OPENROUTER_MODELS: OpenRouterModelInfo[] = [
     id: 'openrouter/free',
     name: 'OpenRouter Free Auto-Router',
     description: 'Smart Free Router — Automatically selects the best available free model with zero downtime 🔀',
-    contextWindow: 131072,
+    contextWindow: 200000,
     badge: 'Auto-Route',
     supportsVision: true,
   },
   {
-    id: 'google/gemini-2.0-flash-exp:free',
-    name: 'Gemini 2.0 Flash Experimental (Free)',
-    description: 'Multimodal Vision & Ultra-Fast Inference — 1M Context Window 👁️⚡',
-    contextWindow: 1048576,
+    id: 'google/gemma-4-31b-it:free',
+    name: 'Google Gemma 4 31B (Free)',
+    description: 'Google Multimodal Vision & Reasoning — 262k Context Window 👁️⚡',
+    contextWindow: 262144,
+    badge: 'Vision & Pro',
+    supportsVision: true,
+  },
+  {
+    id: 'google/gemma-4-26b-a4b-it:free',
+    name: 'Google Gemma 4 26B A4B (Free)',
+    description: 'Ultra-Fast Multimodal Vision & Direct Synthesis — 262k Context Window 👁️🚀',
+    contextWindow: 262144,
     badge: 'Vision & Fast',
     supportsVision: true,
   },
   {
-    id: 'meta-llama/llama-3.3-70b-instruct:free',
-    name: 'Llama 3.3 70B Instruct (Free)',
-    description: 'Meta Flagship 70B — Deep Reasoning, Problem Solving & Complex Coding (128k context) ⚡',
-    contextWindow: 131072,
-    badge: 'Flagship 70B',
+    id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+    name: 'NVIDIA Nemotron 3 Nano Omni (Free)',
+    description: 'Multimodal Vision & High-Speed Reasoning — 256k Context Window 👁️🧠',
+    contextWindow: 256000,
+    badge: 'Vision & Reasoning',
+    supportsVision: true,
   },
   {
-    id: 'deepseek/deepseek-r1:free',
-    name: 'DeepSeek R1 (Free)',
-    description: 'State-of-the-Art Open Reasoning Model — Math, Logic & Chain-of-Thought (64k context) 🧠',
-    contextWindow: 65536,
-    badge: 'Reasoning',
+    id: 'nvidia/nemotron-3.5-lightning:free',
+    name: 'NVIDIA Nemotron 3.5 Lightning (Free)',
+    description: 'Ultra-Fast Inference Engine — 1 Million Context Window ⚡',
+    contextWindow: 1000000,
+    badge: '1M Context',
   },
   {
-    id: 'qwen/qwen-2.5-coder-32b-instruct:free',
-    name: 'Qwen 2.5 Coder 32B (Free)',
-    description: 'Coding Specialist — Syntax Analysis, Debugging & Architecture (32k context) 💻',
-    contextWindow: 32768,
+    id: 'nvidia/nemotron-3-super-120b-a12b:free',
+    name: 'NVIDIA Nemotron 3 Super (Free)',
+    description: 'Large Reasoning Model for Logic, Analysis & Architecture (262k context) 🔬',
+    contextWindow: 262144,
+    badge: '120B Reasoning',
+  },
+  {
+    id: 'cohere/north-mini-code:free',
+    name: 'Cohere North Mini Code (Free)',
+    description: 'Coding Specialist — Syntax Analysis, Debugging & Refactoring (256k context) 💻',
+    contextWindow: 256000,
     badge: 'Coding',
   },
   {
-    id: 'mistralai/mistral-7b-instruct:free',
-    name: 'Mistral 7B Instruct (Free)',
-    description: 'Ultra-Fast Lightweight Model — Low Latency & High Efficiency 🚀',
-    contextWindow: 32768,
-    badge: 'Speed',
-  },
-  {
-    id: 'deepseek/deepseek-chat:free',
-    name: 'DeepSeek V3 Chat (Free)',
-    description: 'High-Performance General Chat & Conversational Assistant (64k context) 🌐',
-    contextWindow: 65536,
-    badge: 'Chat',
-  },
-  {
-    id: 'google/gemini-2.0-pro-exp-02-05:free',
-    name: 'Gemini 2.0 Pro Experimental (Free)',
-    description: 'Heavyweight Research & Pro Reasoning with Multimodal Support 🔬',
+    id: 'google/gemini-2.0-flash-exp:free',
+    name: 'Gemini 2.0 Flash Experimental (Free Legacy)',
+    description: 'Multimodal Vision Legacy Reference 👁️',
     contextWindow: 1048576,
-    badge: 'Pro Vision',
+    badge: 'Legacy Vision',
     supportsVision: true,
   },
 ];
 
 const DEFAULT_OPENROUTER_FALLBACK_CHAIN = [
   'openrouter/free',
-  'google/gemini-2.0-flash-exp:free',
-  'meta-llama/llama-3.3-70b-instruct:free',
-  'deepseek/deepseek-r1:free',
-  'qwen/qwen-2.5-coder-32b-instruct:free',
-  'mistralai/mistral-7b-instruct:free',
-  'deepseek/deepseek-chat:free',
+  'google/gemma-4-31b-it:free',
+  'google/gemma-4-26b-a4b-it:free',
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+  'nvidia/nemotron-3.5-lightning:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
+  'cohere/north-mini-code:free',
 ];
 
 export class OpenRouterService {
@@ -118,18 +120,27 @@ export class OpenRouterService {
     if (imageBase64) {
       const selectedModelInfo = ACTIVE_OPENROUTER_MODELS.find((m) => m.id === requestedModel);
       if (!selectedModelInfo?.supportsVision && requestedModel !== 'openrouter/free') {
-        visionModelOverride = 'google/gemini-2.0-flash-exp:free';
-        onChunk(`> 👁️ *OpenRouter Vision: Analyzing screen with \`google/gemini-2.0-flash-exp:free\`...*\n\n`);
+        visionModelOverride = 'google/gemma-4-31b-it:free';
+        onChunk(`> 👁️ *OpenRouter Vision: Analyzing screen with \`google/gemma-4-31b-it:free\`...*\n\n`);
       }
     }
 
     const primaryTargetModel = visionModelOverride || requestedModel;
 
-    // Build ordered fallback chain
-    const candidateModels = [
-      primaryTargetModel,
-      ...DEFAULT_OPENROUTER_FALLBACK_CHAIN.filter((m) => m !== primaryTargetModel),
-    ];
+    // Build ordered fallback chain (filter for vision-capable models when analyzing screenshots)
+    let candidateModels: string[];
+    if (imageBase64) {
+      const visionModels = ACTIVE_OPENROUTER_MODELS.filter((m) => m.supportsVision).map((m) => m.id);
+      candidateModels = [
+        primaryTargetModel,
+        ...visionModels.filter((m) => m !== primaryTargetModel),
+      ];
+    } else {
+      candidateModels = [
+        primaryTargetModel,
+        ...DEFAULT_OPENROUTER_FALLBACK_CHAIN.filter((m) => m !== primaryTargetModel),
+      ];
+    }
 
     const systemInstruction = config.systemInstruction?.trim() ||
       'You are an expert AI assistant embedded in a private, invisible overlay. Provide concise, clear, and direct answers.';
@@ -206,8 +217,15 @@ export class OpenRouterService {
         lastError = err;
         const message: string = err?.message || String(err);
 
-        // Immediate stop for invalid credentials
-        if (message.includes('401') || message.includes('Invalid API Key') || message.includes('unauthorized') || message.includes('User not found')) {
+        // Immediate stop for invalid credentials or non-existent user
+        if (
+          message.includes('401') ||
+          message.includes('Invalid API Key') ||
+          message.includes('unauthorized') ||
+          message.includes('User not found') ||
+          message.includes('Payment Required') ||
+          message.includes('insufficient_credits')
+        ) {
           throw new Error('Invalid OpenRouter API Key. Please verify your key (starts with "sk-or-v1-") in Settings.');
         }
 
@@ -217,28 +235,14 @@ export class OpenRouterService {
 
         console.warn(`[OpenRouterService] Model ${currentModel} encountered error:`, message);
 
-        const isRecoverable =
-          message.includes('404') ||
-          message.includes('not exist') ||
-          message.includes('model_not_found') ||
-          message.includes('429') ||
-          message.includes('rate limit') ||
-          message.includes('rate-limit') ||
-          message.includes('quota') ||
-          message.includes('500') ||
-          message.includes('502') ||
-          message.includes('503') ||
-          message.includes('overloaded');
-
-        if (!isRecoverable) {
-          break;
-        }
+        // All transient upstream errors (e.g. Nvidia worker limits, ResourceExhausted, 429, 503)
+        // gracefully continue loop to attempt the next healthy free model in candidateModels.
       }
     }
 
     const finalMsg = lastError?.message || 'All OpenRouter free models failed';
-    if (finalMsg.includes('429')) {
-      throw new Error('OpenRouter free tier rate limit reached. Please wait a moment or switch to Gemini/Groq.');
+    if (finalMsg.includes('ResourceExhausted') || finalMsg.includes('request limit') || finalMsg.includes('429')) {
+      throw new Error(`OpenRouter free tier temporary capacity limit reached (${finalMsg}). Please wait a moment or switch to Gemini/Groq.`);
     }
     throw new Error(`OpenRouter Error: ${finalMsg}`);
   }

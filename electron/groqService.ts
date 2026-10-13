@@ -19,6 +19,13 @@ export const ACTIVE_GROQ_MODELS: GroqModelInfo[] = [
     badge: 'Recommended',
   },
   {
+    id: 'llama-3.1-8b-instant',
+    name: 'Llama 3.1 8B Instant',
+    description: 'Ultra-Fast Lightweight Model (128k context, ~560 tok/s) ⚡',
+    contextWindow: 131072,
+    badge: 'Speed',
+  },
+  {
     id: 'deepseek-r1-distill-qwen-32b',
     name: 'DeepSeek R1 Distill Qwen 32B',
     description: 'High-Speed Math & Logic Reasoning (128k context, ~320 tok/s) 🚀',
@@ -33,26 +40,19 @@ export const ACTIVE_GROQ_MODELS: GroqModelInfo[] = [
     badge: 'Coding',
   },
   {
-    id: 'openai/gpt-oss-120b',
-    name: 'GPT-OSS 120B',
-    description: 'High-Capacity Open Weights Reasoning Model (64k context) 🌐',
-    contextWindow: 65536,
-  },
-  {
-    id: 'openai/gpt-oss-20b',
-    name: 'GPT-OSS 20B',
-    description: 'Ultra-Fast Lightweight Model (~400 tok/s) ⚡',
-    contextWindow: 65536,
-    badge: 'Speed',
+    id: 'gemma2-9b-it',
+    name: 'Gemma 2 9B IT',
+    description: 'Google Gemma 2 on Groq Hardware (8k context) 🌐',
+    contextWindow: 8192,
   },
 ];
 
 const DEFAULT_FALLBACK_CHAIN = [
   'llama-3.3-70b-versatile',
+  'llama-3.1-8b-instant',
   'deepseek-r1-distill-qwen-32b',
   'qwen-2.5-coder-32b',
-  'openai/gpt-oss-120b',
-  'openai/gpt-oss-20b',
+  'gemma2-9b-it',
 ];
 
 export class GroqService {
@@ -218,7 +218,7 @@ export class GroqService {
       }
 
       // Step 2: Fault-tolerant verification with active test models
-      const testModels = ['llama-3.3-70b-versatile', 'openai/gpt-oss-20b', 'qwen-2.5-coder-32b'];
+      const testModels = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'qwen-2.5-coder-32b'];
       let lastErrorMessage = '';
 
       for (const model of testModels) {

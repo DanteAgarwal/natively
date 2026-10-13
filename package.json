@@ -12,6 +12,7 @@
     "build:electron": "tsc -p electron/tsconfig.json",
     "build:ui": "vite build",
     "build": "npm run build:electron && npm run build:ui",
+    "test": "npm run build:electron && node --test --test-concurrency=1 tests/*.test.js",
     "preview": "vite preview",
     "electron:dev": "npm run build:electron && cross-env NODE_ENV=development electron .",
     "electron:build": "npm run build:electron && cross-env NODE_ENV=production electron .",

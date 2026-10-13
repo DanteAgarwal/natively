@@ -8,6 +8,15 @@ export interface GhostAPI {
   getConfig: () => Promise<any>;
   saveConfig: (config: any) => Promise<any>;
   testApiKey: (key: string, provider?: 'gemini' | 'groq' | 'openrouter' | 'router', options?: { baseUrl?: string; model?: string }) => Promise<{ success: boolean; error?: string }>;
+  // Meeting Audio (Rust Native Module - Speaker / System Audio)
+  startMeetingAudio: (deviceId?: string) => Promise<{ success: boolean; error?: string }>;
+  stopMeetingAudio: () => Promise<{ success: boolean; error?: string }>;
+  getAudioDevices: () => Promise<{ inputs: Array<{ id: string; name: string }>; outputs: Array<{ id: string; name: string }> }>;
+  getRollingTranscript: () => Promise<Array<{ id: string; speaker: 'meeting' | 'user'; text: string; timestamp: number }>>;
+  clearRollingTranscript: () => Promise<void>;
+  onMeetingTranscript: (callback: (item: { id: string; speaker: 'meeting' | 'user'; text: string; timestamp: number }) => void) => () => void;
+  onMeetingStatus: (callback: (status: { isCapturing: boolean; error?: string }) => void) => () => void;
+
   toggleGhostMode: () => Promise<boolean>;
   setClickThrough: (enabled: boolean) => Promise<boolean>;
   toggleClickThrough: () => Promise<boolean>;

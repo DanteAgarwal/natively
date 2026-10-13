@@ -47,9 +47,15 @@ export async function captureScreen(targetWindow?: BrowserWindow | null): Promis
     // Match source to the monitor where window is located
     const matchedSource = sources.find((s) => s.display_id === targetDisplay.id.toString()) || sources[0];
     const nativeImage = matchedSource.thumbnail;
+    if (!nativeImage || nativeImage.isEmpty()) {
+      throw new Error('Screen capture resulted in an empty frame.');
+    }
 
     // Compress to 85% JPEG in memory - crisp and compact
     const jpegBuffer = nativeImage.toJPEG(85);
+    if (!jpegBuffer || jpegBuffer.length === 0) {
+      throw new Error('Failed to encode screen capture to JPEG.');
+    }
     const base64 = jpegBuffer.toString('base64');
     const previewUrl = `data:image/jpeg;base64,${base64}`;
 
