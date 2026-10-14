@@ -28,6 +28,7 @@ export interface GhostAPI {
   setIgnoreMouseEvents: (ignore: boolean, options?: { forward?: boolean }) => Promise<void>;
   exportSession: (content: string, defaultName?: string) => Promise<{ success: boolean; filePath?: string; canceled?: boolean; error?: string }>;
   setWindowHeight: (height: number) => Promise<void>;
+  toggleWindowSize: () => Promise<boolean>;
   minimizeWindow: () => Promise<void>;
   closeWindow: () => Promise<void>;
 
@@ -38,6 +39,8 @@ export interface GhostAPI {
   onScreenshotCaptured: (callback: (data: { previewUrl: string; prompt: string }) => void) => () => void;
   onTriggerCapture: (callback: () => void) => () => void;
   onTriggerListen: (callback: () => void) => () => void;
+  onTriggerMeeting: (callback: () => void) => () => void;
+  onWindowSizeToggled: (callback: (isExpanded: boolean) => void) => () => void;
   onClickThroughToggled: (callback: (enabled: boolean) => void) => () => void;
   onPanicHide: (callback: () => void) => () => void;
 }
@@ -65,6 +68,7 @@ const api: GhostAPI = {
   setIgnoreMouseEvents: (ignore: boolean, options?: { forward?: boolean }) => ipcRenderer.invoke('ghost:set-ignore-mouse-events', ignore, options),
   exportSession: (content: string, defaultName?: string) => ipcRenderer.invoke('ghost:export-session', { content, defaultName }),
   setWindowHeight: (height) => ipcRenderer.invoke('ghost:set-window-height', height),
+  toggleWindowSize: () => ipcRenderer.invoke('ghost:toggle-window-size'),
   minimizeWindow: () => ipcRenderer.invoke('ghost:minimize'),
   closeWindow: () => ipcRenderer.invoke('ghost:close'),
 
@@ -102,6 +106,18 @@ const api: GhostAPI = {
     const handler = () => callback();
     ipcRenderer.on('ghost:trigger-listen-hotkey', handler);
     return () => ipcRenderer.removeListener('ghost:trigger-listen-hotkey', handler);
+  },
+
+  onTriggerMeeting: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('ghost:trigger-meeting-hotkey', handler);
+    return () => ipcRenderer.removeListener('ghost:trigger-meeting-hotkey', handler);
+  },
+
+  onWindowSizeToggled: (callback) => {
+    const handler = (_event: any, isExpanded: boolean) => callback(isExpanded);
+    ipcRenderer.on('ghost:window-size-toggled', handler);
+    return () => ipcRenderer.removeListener('ghost:window-size-toggled', handler);
   },
 
   onClickThroughToggled: (callback) => {

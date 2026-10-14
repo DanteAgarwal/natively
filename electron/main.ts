@@ -28,20 +28,20 @@ function createGhostWindow(): BrowserWindow {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { workArea } = primaryDisplay;
 
-  const winWidth = 560;
-  const initialHeight = 620;
+  const winWidth = 660;
+  const initialHeight = 740;
 
   // Multi-monitor safe positioning: right side, near top
   // (right-side default avoids blocking most app content)
-  const x = Math.round(workArea.x + workArea.width - winWidth - 20);
-  const y = Math.round(workArea.y + 40);
+  const x = Math.round(workArea.x + workArea.width - winWidth - 24);
+  const y = Math.round(workArea.y + 32);
 
   const win = new BrowserWindow({
     width: winWidth,
     height: initialHeight,
-    minWidth: 340,
+    minWidth: 380,
     minHeight: 52,
-    maxWidth: 800,
+    maxWidth: 1100,
     x,
     y,
     transparent: true,
@@ -243,6 +243,18 @@ function triggerListen(): void {
   mainWindow.webContents.send('ghost:trigger-listen-hotkey');
 }
 
+function toggleWindowSize(): boolean {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  const [currentWidth] = mainWindow.getSize();
+  const currentDisplay = screen.getDisplayMatching(mainWindow.getBounds()) || screen.getPrimaryDisplay();
+  const isExpanded = currentWidth >= 740;
+  const targetWidth = isExpanded ? 640 : 800;
+  const targetHeight = isExpanded ? 720 : Math.min(880, Math.round(currentDisplay.workArea.height * 0.92));
+  mainWindow.setSize(targetWidth, targetHeight, true);
+  mainWindow.webContents.send('ghost:window-size-toggled', !isExpanded);
+  return !isExpanded;
+}
+
 function registerGlobalHotkeys(): void {
   globalShortcut.unregisterAll();
 
@@ -273,6 +285,26 @@ function registerGlobalHotkeys(): void {
   globalShortcut.register('CommandOrControl+Shift+H', () => {
     panicHide();
   });
+
+  // Toggle Meeting Audio capture: Ctrl+Shift+M
+  try {
+    globalShortcut.register('CommandOrControl+Shift+M', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('ghost:trigger-meeting-hotkey');
+      }
+    });
+  } catch (err) {
+    console.warn('Failed to register Ctrl+Shift+M hotkey:', err);
+  }
+
+  // Toggle Overlay Size (Big vs Normal): Ctrl+Shift+B
+  try {
+    globalShortcut.register('CommandOrControl+Shift+B', () => {
+      toggleWindowSize();
+    });
+  } catch (err) {
+    console.warn('Failed to register Ctrl+Shift+B hotkey:', err);
+  }
 }
 
 let currentStreamAbort = false;
@@ -590,6 +622,10 @@ function setupIpcHandlers(): void {
     const maxHeight = Math.round(currentDisplay.workArea.height * 0.95);
     const targetHeight = Math.min(Math.max(height, 52), maxHeight);
     mainWindow.setSize(currentWidth, targetHeight, true);
+  });
+
+  ipcMain.handle('ghost:toggle-window-size', () => {
+    return toggleWindowSize();
   });
 
   // ── 6. Click-Through Mode ──

@@ -35,6 +35,7 @@ import {
   Volume2,
   Layers,
   ListOrdered,
+  Maximize2,
 } from 'lucide-react';
 import { MarkdownRenderer } from './components/MarkdownRenderer';
 
@@ -134,6 +135,21 @@ const App: React.FC = () => {
   const [showTranscriptDrawer, setShowTranscriptDrawer] = useState(false);
   const [audioDevices, setAudioDevices] = useState<{ inputs: any[]; outputs: any[] }>({ inputs: [], outputs: [] });
   const [selectedOutputDevice, setSelectedOutputDevice] = useState<string>('');
+  const [quickToast, setQuickToast] = useState<string | null>(null);
+  const [isBigOverlay, setIsBigOverlay] = useState<boolean>(false);
+
+  const toggleMeetingRef = useRef<() => void>(() => {});
+  const captureAndAnalyzeRef = useRef<() => void>(() => {});
+  const exportSessionRef = useRef<() => void>(() => {});
+  const clearMessagesRef = useRef<() => void>(() => {});
+  const whatToAnswerRef = useRef<() => void>(() => {});
+  const recapRef = useRef<() => void>(() => {});
+  const followUpRef = useRef<() => void>(() => {});
+  const shortenRef = useRef<() => void>(() => {});
+  const cycleProviderRef = useRef<() => void>(() => {});
+  const toggleWindowSizeRef = useRef<() => void>(() => {});
+  const copyLastResponseRef = useRef<() => void>(() => {});
+  const stopStreamRef = useRef<() => void>(() => {});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -300,6 +316,14 @@ const App: React.FC = () => {
       }
     });
 
+    const unsubHotkeyMeeting = window.ghostAPI.onTriggerMeeting?.(() => {
+      toggleMeetingRef.current();
+    });
+
+    const unsubWindowSize = window.ghostAPI.onWindowSizeToggled?.((expanded) => {
+      setIsBigOverlay(expanded);
+    });
+
     return () => {
       unsubChunk();
       unsubEnd();
@@ -311,34 +335,194 @@ const App: React.FC = () => {
       unsubPanic();
       unsubMeetingTranscript?.();
       unsubMeetingStatus?.();
+      unsubHotkeyMeeting?.();
+      unsubWindowSize?.();
     };
   }, []);
 
-  // Emergency Escape / Panic & Push-to-Listen key handler
+  // Universal Keyboard Shortcut Dispatcher
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'F9' || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'l')) {
-        e.preventDefault();
-        toggleListeningRef.current();
-        return;
-      }
+      const activeEl = document.activeElement;
+      const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+
+      // 1. Escape: Hierarchical Smart Dismiss
       if (e.key === 'Escape') {
+        e.preventDefault();
+        if (isStreaming) {
+          stopStreamRef.current();
+          setQuickToast('Streaming cancelled ⏹️');
+          setTimeout(() => setQuickToast(null), 1500);
+          return;
+        }
         if (isListening) {
           stopListening();
           return;
         }
+        if (showShortcuts) {
+          setShowShortcuts(false);
+          return;
+        }
         if (isSettingsOpen) {
           setIsSettingsOpen(false);
-        } else if (showShortcuts) {
-          setShowShortcuts(false);
-        } else if (window.ghostAPI) {
+          return;
+        }
+        if (showTranscriptDrawer) {
+          setShowTranscriptDrawer(false);
+          return;
+        }
+        if (isInputFocused && inputPrompt) {
+          setInputPrompt('');
+          return;
+        }
+        if (isInputFocused) {
+          (activeEl as HTMLElement).blur();
+          return;
+        }
+        if (window.ghostAPI) {
           window.ghostAPI.minimizeWindow();
         }
+        return;
+      }
+
+      // 2. Cheatsheet HUD (? when not typing, or F1)
+      if ((e.key === '?' && !isInputFocused) || e.key === 'F1') {
+        e.preventDefault();
+        setShowShortcuts((prev) => !prev);
+        return;
+      }
+
+      // 3. Focus Prompt Input (/ when not typing, or Alt+/, or Ctrl+L)
+      if (((e.key === '/' && !isInputFocused) || (e.altKey && e.key === '/') || (e.ctrlKey && e.key.toLowerCase() === 'l')) && !e.shiftKey) {
+        e.preventDefault();
+        inputRef.current?.focus();
+        return;
+      }
+
+      // 4. Voice Dictation (F9 or Alt+L or Ctrl+Shift+L)
+      if (e.key === 'F9' || (e.altKey && e.key.toLowerCase() === 'l') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'l')) {
+        e.preventDefault();
+        toggleListeningRef.current();
+        return;
+      }
+
+      // 5. Capture & Analyze Screen (Alt+S or Ctrl+Shift+S)
+      if ((e.altKey && e.key.toLowerCase() === 's') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 's')) {
+        e.preventDefault();
+        captureAndAnalyzeRef.current();
+        return;
+      }
+
+      // 6. Meeting Audio Sync (Alt+M or Ctrl+Shift+M)
+      if ((e.altKey && e.key.toLowerCase() === 'm') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'm')) {
+        e.preventDefault();
+        toggleMeetingRef.current();
+        return;
+      }
+
+      // 7. Toggle Meeting Transcripts Drawer (Alt+T or Ctrl+Shift+T)
+      if ((e.altKey && e.key.toLowerCase() === 't') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 't')) {
+        e.preventDefault();
+        setShowTranscriptDrawer((prev) => !prev);
+        return;
+      }
+
+      // 8. Meeting Action Pills (Alt+W, Alt+R, Alt+F, Alt+K)
+      if (e.altKey && e.key.toLowerCase() === 'w') {
+        e.preventDefault();
+        whatToAnswerRef.current();
+        return;
+      }
+      if (e.altKey && e.key.toLowerCase() === 'r') {
+        e.preventDefault();
+        recapRef.current();
+        return;
+      }
+      if (e.altKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        followUpRef.current();
+        return;
+      }
+      if (e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        shortenRef.current();
+        return;
+      }
+
+      // 9. Clear Chat (Ctrl+K or Ctrl+Shift+C)
+      if ((e.ctrlKey && e.key.toLowerCase() === 'k' && !e.altKey) || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'c')) {
+        e.preventDefault();
+        clearMessagesRef.current();
+        setQuickToast('Conversation cleared 🗑️');
+        setTimeout(() => setQuickToast(null), 1500);
+        return;
+      }
+
+      // 10. Copy Last Response (Alt+C or Ctrl+Shift+Y)
+      if ((e.altKey && e.key.toLowerCase() === 'c') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'y')) {
+        e.preventDefault();
+        copyLastResponseRef.current();
+        return;
+      }
+
+      // 11. Cycle AI Provider (Alt+P or Ctrl+Shift+P)
+      if ((e.altKey && e.key.toLowerCase() === 'p') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'p')) {
+        e.preventDefault();
+        cycleProviderRef.current();
+        return;
+      }
+
+      // 12. Toggle Overlay Size (Big vs Standard) (Alt+B or Ctrl+Shift+B)
+      if ((e.altKey && e.key.toLowerCase() === 'b') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'b')) {
+        e.preventDefault();
+        toggleWindowSizeRef.current();
+        return;
+      }
+
+      // 13. Settings (Ctrl+, or Alt+,)
+      if ((e.ctrlKey && e.key === ',') || (e.altKey && e.key === ',')) {
+        e.preventDefault();
+        setIsSettingsOpen((prev) => !prev);
+        return;
+      }
+
+      // 14. Export Session (Alt+E or Ctrl+Shift+E)
+      if ((e.altKey && e.key.toLowerCase() === 'e') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'e')) {
+        e.preventDefault();
+        exportSessionRef.current();
+        return;
+      }
+
+      // 15. Toggle Click-Through (Alt+X or Ctrl+Shift+X)
+      if ((e.altKey && e.key.toLowerCase() === 'x') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'x')) {
+        e.preventDefault();
+        handleToggleClickThrough();
+        return;
+      }
+
+      // 16. Toggle Ghost Shield (Alt+G or Ctrl+Shift+G)
+      if ((e.altKey && e.key.toLowerCase() === 'g') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'g')) {
+        e.preventDefault();
+        handleToggleGhostMode();
+        return;
+      }
+
+      // 17. Tab Switching (Alt+1 for Chat, Alt+2 for Screen AI)
+      if (e.altKey && e.key === '1') {
+        e.preventDefault();
+        setActiveTab('chat');
+        return;
+      }
+      if (e.altKey && e.key === '2') {
+        e.preventDefault();
+        setActiveTab('capture');
+        return;
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSettingsOpen, showShortcuts, isListening]);
+  }, [isSettingsOpen, showShortcuts, isListening, isStreaming, showTranscriptDrawer, inputPrompt]);
 
   // Auto-scroll when messages update
   useEffect(() => {
@@ -353,7 +537,7 @@ const App: React.FC = () => {
       if (isCollapsed) {
         window.ghostAPI.setWindowHeight(52);
       } else {
-        window.ghostAPI.setWindowHeight(600);
+        window.ghostAPI.setWindowHeight(720);
       }
     }
   }, [isCollapsed]);
@@ -644,9 +828,55 @@ const App: React.FC = () => {
     setMeetingTranscripts([]);
   };
 
-  // Keep toggleListeningRef updated for hotkeys
+  const handleCycleProvider = () => {
+    const providers: Array<'gemini' | 'groq' | 'openrouter' | 'router'> = ['gemini', 'groq', 'openrouter', 'router'];
+    const currentIndex = providers.indexOf(config.provider);
+    const nextProvider = providers[(currentIndex + 1) % providers.length];
+    const newConfig = { ...config, provider: nextProvider };
+    setConfig(newConfig);
+    if (window.ghostAPI) {
+      window.ghostAPI.saveConfig(newConfig);
+    }
+    setQuickToast(`Switched to ${nextProvider.toUpperCase()} ⚡`);
+    setTimeout(() => setQuickToast(null), 2500);
+  };
+
+  const handleToggleWindowSize = async () => {
+    if (window.ghostAPI?.toggleWindowSize) {
+      const expanded = await window.ghostAPI.toggleWindowSize();
+      setIsBigOverlay(expanded);
+      setQuickToast(expanded ? 'Expanded Screen (800x880) 📐' : 'Standard Screen (640x720) 📏');
+      setTimeout(() => setQuickToast(null), 2500);
+    }
+  };
+
+  const handleCopyLastResponse = () => {
+    const lastModelMessage = [...messages].reverse().find((m) => m.role === 'model' && m.text);
+    if (lastModelMessage) {
+      navigator.clipboard.writeText(lastModelMessage.text);
+      setQuickToast('Copied response to clipboard ✓');
+      setTimeout(() => setQuickToast(null), 2000);
+    } else {
+      setQuickToast('No response to copy');
+      setTimeout(() => setQuickToast(null), 2000);
+    }
+  };
+
+  // Keep action refs updated for universal hotkey dispatcher
   useEffect(() => {
     toggleListeningRef.current = toggleListening;
+    toggleMeetingRef.current = toggleMeetingAudio;
+    captureAndAnalyzeRef.current = handleCaptureAndAnalyze;
+    exportSessionRef.current = handleExportSession;
+    clearMessagesRef.current = handleClearMessages;
+    whatToAnswerRef.current = handleWhatToAnswer;
+    recapRef.current = handleRecapMeeting;
+    followUpRef.current = handleFollowUp;
+    shortenRef.current = handleShorten;
+    cycleProviderRef.current = handleCycleProvider;
+    toggleWindowSizeRef.current = handleToggleWindowSize;
+    copyLastResponseRef.current = handleCopyLastResponse;
+    stopStreamRef.current = handleStopStream;
   });
 
   // Capture screen & analyze with Vision AI
@@ -758,7 +988,7 @@ const App: React.FC = () => {
       style={{ background: 'transparent', opacity: windowOpacity }}
     >
       {/* Main Glass Shell */}
-      <div className="w-full h-full flex flex-col rounded-2xl overflow-hidden transition-all duration-200"
+      <div className="w-full h-full flex flex-col rounded-2xl overflow-hidden transition-all duration-200 relative"
         style={{
           background: 'rgba(10, 11, 16, 0.96)',
           border: '1px solid rgba(255,255,255,0.08)',
@@ -766,6 +996,21 @@ const App: React.FC = () => {
           backdropFilter: 'blur(24px)',
         }}
       >
+        {/* Floating Quick Action Toast Notification */}
+        {quickToast && (
+          <div
+            className="absolute top-14 left-1/2 -translate-x-1/2 z-50 px-3.5 py-1.5 rounded-full text-[11px] font-semibold backdrop-blur-md shadow-2xl border flex items-center gap-1.5 pointer-events-none transition-all"
+            style={{
+              background: 'rgba(15, 23, 42, 0.95)',
+              borderColor: 'rgba(56, 189, 248, 0.4)',
+              color: '#38bdf8',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.7)',
+            }}
+          >
+            <span>{quickToast}</span>
+          </div>
+        )}
+
         {/* ── Top Bar / Drag Handle ── */}
         <div
           className="titlebar-drag-region shrink-0 h-12 px-3 flex items-center justify-between border-b"
@@ -777,7 +1022,7 @@ const App: React.FC = () => {
           <div className="flex items-center gap-2 no-drag">
             <button
               onClick={handleToggleGhostMode}
-              title={isGhostActive ? 'Ghost Shield Active — invisible in Zoom, Meet, OBS, Discord' : 'Ghost Mode Disabled — click to re-enable'}
+              title={isGhostActive ? 'Ghost Shield Active — invisible in Zoom, Meet, OBS (Alt+G)' : 'Ghost Mode Disabled (Alt+G)'}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all duration-200"
               style={{
                 background: isGhostActive ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
@@ -799,7 +1044,7 @@ const App: React.FC = () => {
             {/* Click-Through Mode Toggle */}
             <button
               onClick={handleToggleClickThrough}
-              title={isClickThrough ? 'Click-Through ON — mouse clicks pass through to window behind (Ctrl+Shift+X)' : 'Enable Click-Through pass-through (Ctrl+Shift+X)'}
+              title={isClickThrough ? 'Click-Through ON — mouse clicks pass to apps behind (Alt+X / Ctrl+Shift+X)' : 'Enable Click-Through pass-through (Alt+X / Ctrl+Shift+X)'}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all duration-200"
               style={{
                 background: isClickThrough ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.04)',
@@ -813,8 +1058,8 @@ const App: React.FC = () => {
 
             {/* Model tag button */}
             <button
-              onClick={() => setIsSettingsOpen(true)}
-              title="Current AI Model & Provider (Click to open Settings)"
+              onClick={handleCycleProvider}
+              title="Click or press Alt+P to cycle AI Provider (Gemini / Groq / OpenRouter / Router)"
               className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full transition-all hover:scale-105"
               style={{
                 background:
@@ -853,6 +1098,7 @@ const App: React.FC = () => {
                       ? `router:${config.routerPreset || 'custom'}`
                       : config.model.split('-').slice(0, 2).join('-')}
               </span>
+              <span className="opacity-60 text-[9px] font-mono ml-0.5">Alt+P</span>
             </button>
           </div>
 
@@ -864,41 +1110,49 @@ const App: React.FC = () => {
           {/* Right: Window Controls */}
           <div className="flex items-center gap-0.5 no-drag">
             <button
+              onClick={handleToggleWindowSize}
+              className="p-1.5 rounded-lg transition-colors hover:bg-white/5"
+              style={{ color: isBigOverlay ? '#38bdf8' : 'rgba(255,255,255,0.35)' }}
+              title={isBigOverlay ? 'Standard overlay size (Alt+B / Ctrl+Shift+B)' : 'Expand overlay screen size (Alt+B / Ctrl+Shift+B)'}
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+            <button
               onClick={() => setShowShortcuts((v) => !v)}
-              className="p-1.5 rounded-lg transition-colors"
-              style={{ color: 'rgba(255,255,255,0.3)' }}
-              title="Keyboard shortcuts"
+              className="p-1.5 rounded-lg transition-colors hover:bg-white/5"
+              style={{ color: showShortcuts ? '#38bdf8' : 'rgba(255,255,255,0.35)' }}
+              title="Keyboard shortcuts cheatsheet (Press ? or F1)"
             >
               <Info className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className="p-1.5 rounded-lg transition-colors"
-              style={{ color: 'rgba(255,255,255,0.3)' }}
-              title="Settings & API Key"
+              className="p-1.5 rounded-lg transition-colors hover:bg-white/5"
+              style={{ color: 'rgba(255,255,255,0.35)' }}
+              title="Settings & API Key (Ctrl+, / Alt+,)"
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => setIsCollapsed(!isCollapsed)}
-              className="p-1.5 rounded-lg transition-colors"
-              style={{ color: 'rgba(255,255,255,0.3)' }}
-              title={isCollapsed ? 'Expand' : 'Collapse to mini bar'}
+              className="p-1.5 rounded-lg transition-colors hover:bg-white/5"
+              style={{ color: 'rgba(255,255,255,0.35)' }}
+              title={isCollapsed ? 'Expand overlay' : 'Collapse to mini bar'}
             >
               {isCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <Minus className="w-3.5 h-3.5" />}
             </button>
             <button
               onClick={() => window.ghostAPI?.minimizeWindow()}
-              className="p-1.5 rounded-lg transition-colors"
+              className="p-1.5 rounded-lg transition-colors hover:bg-white/5"
               style={{ color: 'rgba(255,255,255,0.25)' }}
-              title="Hide Overlay (Ctrl+\ to restore)"
+              title="Hide Overlay (Ctrl+\ to restore / Esc)"
             >
               <EyeOff className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => window.ghostAPI?.closeWindow()}
-              className="p-1.5 rounded-lg transition-colors ml-1"
-              style={{ color: 'rgba(239,68,68,0.5)' }}
+              className="p-1.5 rounded-lg transition-colors ml-1 hover:bg-red-500/10"
+              style={{ color: 'rgba(239,68,68,0.6)' }}
               title="Quit App"
             >
               <X className="w-3.5 h-3.5" />
@@ -920,43 +1174,69 @@ const App: React.FC = () => {
           >
             <div className="flex items-center gap-1.5">
               <MousePointer className="w-3.5 h-3.5 text-indigo-400 animate-pulse shrink-0" />
-              <span><strong>Click-Through Active</strong> — Clicks pass to apps behind. Press <kbd className="px-1 py-0.2 rounded font-mono text-[10px]" style={{ background: 'rgba(99,102,241,0.35)', border: '1px solid rgba(99,102,241,0.5)' }}>Ctrl+Shift+X</kbd> to interact.</span>
+              <span><strong>Click-Through Active</strong> — Clicks pass to apps behind. Press <kbd className="px-1 py-0.2 rounded font-mono text-[10px]" style={{ background: 'rgba(99,102,241,0.35)', border: '1px solid rgba(99,102,241,0.5)' }}>Alt+X</kbd> or <kbd className="px-1 py-0.2 rounded font-mono text-[10px]" style={{ background: 'rgba(99,102,241,0.35)', border: '1px solid rgba(99,102,241,0.5)' }}>Ctrl+Shift+X</kbd> to interact.</span>
             </div>
             <button
               onClick={handleToggleClickThrough}
               className="px-2 py-0.5 rounded text-[10px] font-medium transition-all"
               style={{ background: 'rgba(99,102,241,0.3)', border: '1px solid rgba(99,102,241,0.45)' }}
             >
-              Disable
+              Disable (Alt+X)
             </button>
           </div>
         )}
 
-        {/* ── Keyboard Shortcuts Panel ── */}
+        {/* ── Comprehensive Keyboard Shortcuts Cheatsheet Modal ── */}
         {showShortcuts && !isCollapsed && (
           <div
-            className="shrink-0 px-4 py-3 border-b text-[11px]"
-            style={{ borderColor: 'rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.02)', color: 'rgba(255,255,255,0.5)' }}
+            className="shrink-0 px-4 py-3.5 border-b text-[11px] max-h-60 overflow-y-auto"
+            style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(15, 23, 42, 0.75)', color: 'rgba(255,255,255,0.7)', scrollbarWidth: 'thin' }}
           >
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-semibold" style={{ color: 'rgba(255,255,255,0.6)' }}>Keyboard Shortcuts</span>
-              <button onClick={() => setShowShortcuts(false)} style={{ color: 'rgba(255,255,255,0.3)' }}><X className="w-3 h-3" /></button>
+            <div className="flex items-center justify-between mb-2.5 pb-1 border-b border-white/5">
+              <span className="text-[12px] font-bold text-white flex items-center gap-1.5">
+                ⌨️ Complete Keyboard Shortcuts (Mouse-Free Copilot)
+              </span>
+              <button onClick={() => setShowShortcuts(false)} className="text-zinc-400 hover:text-white p-0.5"><X className="w-3.5 h-3.5" /></button>
             </div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-              {[
-                ['Ctrl+\\', 'Toggle show/hide'],
-                ['Ctrl+Shift+S', 'Capture & analyze screen'],
-                ['F9 / Ctrl+Shift+L', 'Push-to-Listen (Voice STT)'],
-                ['Ctrl+Shift+X', 'Toggle Click-Through mode'],
-                ['Ctrl+Shift+H', 'Stealth Panic Hide'],
-                ['Esc', 'Instant hide overlay'],
-                ['Enter', 'Send chat message'],
-              ].map(([key, desc]) => (
-                <div key={key} className="flex items-center gap-2">
-                  <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono" style={{ background: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.1)' }}>{key}</kbd>
-                  <span>{desc}</span>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px]">
+              <div>
+                <div className="font-semibold text-cyan-400 mb-1 flex items-center gap-1">🎙️ Speech & Vision</div>
+                <div className="space-y-1">
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+S</kbd> Capture Screen</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+L / F9</kbd> Mic Dictate</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+M</kbd> Sync Meeting</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+T</kbd> Transcripts Drawer</div>
                 </div>
-              ))}
+              </div>
+              <div>
+                <div className="font-semibold text-emerald-400 mb-1 flex items-center gap-1">🎯 Meeting Actions</div>
+                <div className="space-y-1">
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+W</kbd> What to answer?</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+R</kbd> Recap Meeting</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+F</kbd> Follow Up Questions</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+K</kbd> Shorten to Bullets</div>
+                </div>
+              </div>
+              <div>
+                <div className="font-semibold text-indigo-400 mb-1 flex items-center gap-1">⚡ Chat & Navigation</div>
+                <div className="space-y-1">
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">/ or Alt+/</kbd> Focus Input</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+1 / 2</kbd> Switch Tabs</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+C</kbd> Copy Answer</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+E</kbd> Export Session</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Ctrl+K</kbd> Clear Chat</div>
+                </div>
+              </div>
+              <div>
+                <div className="font-semibold text-amber-400 mb-1 flex items-center gap-1">🛡️ Window & Stealth</div>
+                <div className="space-y-1">
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+B</kbd> Big ↔ Normal Size</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+P</kbd> Cycle Provider</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+X</kbd> Click-Through</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+G</kbd> Ghost Shield</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Esc</kbd> Cancel / Dismiss</div>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -985,21 +1265,23 @@ const App: React.FC = () => {
               style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
             >
               {[
-                { id: 'chat' as const, label: 'Chat', icon: MessageSquare, badge: messageCount > 0 ? messageCount : null },
-                { id: 'capture' as const, label: 'Screen AI', icon: ScanLine },
+                { id: 'chat' as const, label: 'Chat', icon: MessageSquare, shortcut: 'Alt+1', badge: messageCount > 0 ? messageCount : null },
+                { id: 'capture' as const, label: 'Screen AI', icon: ScanLine, shortcut: 'Alt+2' },
               ].map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-medium transition-all duration-150"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all duration-150"
                   style={{
                     background: activeTab === tab.id ? 'rgba(59,130,246,0.15)' : 'transparent',
                     color: activeTab === tab.id ? '#60a5fa' : 'rgba(255,255,255,0.35)',
                     border: activeTab === tab.id ? '1px solid rgba(59,130,246,0.2)' : '1px solid transparent',
                   }}
+                  title={`Switch to ${tab.label} [${tab.shortcut}]`}
                 >
                   <tab.icon className="w-3 h-3" />
                   <span>{tab.label}</span>
+                  <kbd className="font-mono text-[8px] bg-white/5 px-1 rounded opacity-50">{tab.shortcut}</kbd>
                   {tab.badge && (
                     <span className="px-1 py-0 rounded text-[9px] font-semibold" style={{ background: 'rgba(59,130,246,0.3)', color: '#93c5fd' }}>
                       {tab.badge}
@@ -1016,15 +1298,16 @@ const App: React.FC = () => {
                       onClick={handleExportSession}
                       className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] transition-colors"
                       style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.08)' }}
-                      title="Export Session as Markdown"
+                      title="Export Session as Markdown [Alt+E]"
                     >
                       <Download className="w-2.5 h-2.5" />
                       <span>Export</span>
+                      <kbd className="font-mono text-[8px] opacity-60 ml-0.5">Alt+E</kbd>
                     </button>
                     <button
                       onClick={handleClearMessages}
                       className="p-1 rounded text-white/30 hover:text-red-400 transition-colors"
-                      title="Clear Session Messages"
+                      title="Clear Session Messages [Ctrl+K]"
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -1145,11 +1428,11 @@ const App: React.FC = () => {
                       onClick={() => { setActiveTab('capture'); }}
                       className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all"
                       style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.2)' }}
-                      title="Go to Screen Capture tab"
+                      title="Screen Capture & Vision Analysis [Alt+S or Ctrl+Shift+S]"
                     >
                       <Camera className="w-3 h-3" />
                       <span>Capture Screen</span>
-                      <span className="opacity-60 font-mono">Ctrl+⇧+S</span>
+                      <kbd className="font-mono text-[9px] bg-blue-950/60 px-1 rounded opacity-70">Alt+S</kbd>
                     </button>
 
                     {/* Push-to-Listen (User Microphone) */}
@@ -1160,19 +1443,19 @@ const App: React.FC = () => {
                         ? 'bg-red-500/20 text-red-300 border border-red-500/50 shadow-sm'
                         : 'bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 hover:text-white hover:border-zinc-500'
                         }`}
-                      title="Push to Listen (Your Microphone) [F9 or Ctrl+Shift+L]"
+                      title="Push to Listen (Microphone Dictation) [Alt+L or F9]"
                     >
                       {isListening ? (
                         <>
                           <Radio className="w-3 h-3 text-red-400 animate-pulse" />
                           <span>Mic: Recording...</span>
-                          <span className="opacity-70 font-mono text-[9px] bg-red-950/60 px-1 rounded">F9</span>
+                          <kbd className="font-mono text-[9px] bg-red-950/60 px-1 rounded opacity-80">F9</kbd>
                         </>
                       ) : (
                         <>
                           <Mic className="w-3 h-3 text-emerald-400" />
                           <span>Mic: Dictate</span>
-                          <span className="opacity-60 font-mono text-[9px] bg-zinc-700/50 px-1 rounded">F9</span>
+                          <kbd className="font-mono text-[9px] bg-zinc-700/50 px-1 rounded opacity-70">Alt+L</kbd>
                         </>
                       )}
                     </button>
@@ -1185,20 +1468,22 @@ const App: React.FC = () => {
                         ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-sm animate-pulse'
                         : 'bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 hover:text-white hover:border-cyan-500/50'
                         }`}
-                      title="Sync Meeting Audio (Captures Interviewer / Speaker Output via Rust WASAPI)"
+                      title="Sync Meeting Audio (Interviewer loopback via WASAPI) [Alt+M or Ctrl+Shift+M]"
                     >
                       <Headphones className={`w-3 h-3 ${isMeetingListening ? 'text-cyan-400' : 'text-cyan-500'}`} />
                       <span>{isMeetingListening ? 'Meeting: Listening' : 'Sync Meeting'}</span>
+                      <kbd className="font-mono text-[9px] bg-cyan-950/60 px-1 rounded opacity-70">Alt+M</kbd>
                     </button>
 
                     {messageCount > 0 && !isStreaming && (
                       <button
                         onClick={handleClearMessages}
-                        className="p-1 rounded-lg transition-colors ml-auto"
-                        style={{ color: 'rgba(239,68,68,0.4)' }}
-                        title="Clear conversation"
+                        className="p-1 rounded-lg transition-colors ml-auto flex items-center gap-1"
+                        style={{ color: 'rgba(239,68,68,0.6)' }}
+                        title="Clear conversation [Ctrl+K]"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
+                        <span className="text-[9px] font-mono opacity-50">^K</span>
                       </button>
                     )}
                   </div>
@@ -1209,37 +1494,41 @@ const App: React.FC = () => {
                       onClick={handleWhatToAnswer}
                       disabled={isStreaming}
                       className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all bg-blue-500/15 text-blue-300 border border-blue-500/30 hover:bg-blue-500/25 disabled:opacity-40"
-                      title="Analyze recent meeting audio and suggest the best response"
+                      title="Analyze recent meeting audio and suggest best answer [Alt+W]"
                     >
                       <span>🎯</span>
                       <span>What to answer?</span>
+                      <kbd className="font-mono text-[8px] bg-blue-950/40 px-1 rounded opacity-70">Alt+W</kbd>
                     </button>
                     <button
                       onClick={handleRecapMeeting}
                       disabled={isStreaming}
                       className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 disabled:opacity-40"
-                      title="Summarize key points from meeting transcript"
+                      title="Summarize key points from meeting transcript [Alt+R]"
                     >
                       <span>📋</span>
                       <span>Recap</span>
+                      <kbd className="font-mono text-[8px] bg-emerald-950/40 px-1 rounded opacity-70">Alt+R</kbd>
                     </button>
                     <button
                       onClick={handleFollowUp}
                       disabled={isStreaming}
                       className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 disabled:opacity-40"
-                      title="Suggest 3 smart follow-up questions"
+                      title="Suggest 3 smart follow-up questions [Alt+F]"
                     >
                       <span>💡</span>
                       <span>Follow Up</span>
+                      <kbd className="font-mono text-[8px] bg-amber-950/40 px-1 rounded opacity-70">Alt+F</kbd>
                     </button>
                     <button
                       onClick={handleShorten}
                       disabled={isStreaming}
                       className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all bg-purple-500/15 text-purple-300 border border-purple-500/30 hover:bg-purple-500/25 disabled:opacity-40"
-                      title="Condense previous answer into speakable bullet points"
+                      title="Condense previous answer into bullet points [Alt+K]"
                     >
                       <span>✂️</span>
                       <span>Shorten</span>
+                      <kbd className="font-mono text-[8px] bg-purple-950/40 px-1 rounded opacity-70">Alt+K</kbd>
                     </button>
                     {meetingTranscripts.length > 0 && (
                       <button
@@ -1248,9 +1537,11 @@ const App: React.FC = () => {
                           ? 'bg-zinc-700 text-white'
                           : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
                           }`}
+                        title="Toggle Live Meeting Transcript Feed [Alt+T]"
                       >
                         <ListOrdered className="w-2.5 h-2.5" />
                         <span>Transcript ({meetingTranscripts.length})</span>
+                        <kbd className="font-mono text-[8px] bg-zinc-800 px-1 rounded opacity-70">Alt+T</kbd>
                       </button>
                     )}
                   </div>

@@ -23,6 +23,7 @@ export interface GhostAPI {
   setIgnoreMouseEvents: (ignore: boolean, options?: { forward?: boolean }) => Promise<void>;
   exportSession: (content: string, defaultName?: string) => Promise<{ success: boolean; filePath?: string; canceled?: boolean; error?: string }>;
   setWindowHeight: (height: number) => Promise<void>;
+  toggleWindowSize?: () => Promise<boolean>;
   minimizeWindow: () => Promise<void>;
   closeWindow: () => Promise<void>;
   onStreamChunk: (callback: (chunk: string) => void) => () => void;
@@ -31,6 +32,8 @@ export interface GhostAPI {
   onScreenshotCaptured: (callback: (data: { previewUrl: string; prompt: string }) => void) => () => void;
   onTriggerCapture: (callback: () => void) => () => void;
   onTriggerListen: (callback: () => void) => () => void;
+  onTriggerMeeting?: (callback: () => void) => () => void;
+  onWindowSizeToggled?: (callback: (isExpanded: boolean) => void) => () => void;
   onClickThroughToggled: (callback: (enabled: boolean) => void) => () => void;
   onPanicHide: (callback: () => void) => () => void;
 }
