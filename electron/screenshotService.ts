@@ -68,7 +68,15 @@ export async function captureScreen(targetWindow?: BrowserWindow | null): Promis
   } finally {
     if (wasVisible && targetWindow && !targetWindow.isDestroyed()) {
       targetWindow.show();
-      targetWindow.setAlwaysOnTop(true, 'screen-saver', 3);
+      try {
+        // 🛡️ CRITICAL: Windows DWM can drop WDA_EXCLUDEFROMCAPTURE affinity when a transparent
+        // window is hidden and reshown. Re-assert immediately upon show().
+        targetWindow.setContentProtection(true);
+        targetWindow.setAlwaysOnTop(true, 'screen-saver', 3);
+        targetWindow.setSkipTaskbar(true);
+      } catch (err) {
+        console.error('[Ghost Shield] Failed to re-assert content protection in screenshotService:', err);
+      }
     }
   }
 }

@@ -967,10 +967,13 @@ const App: React.FC = () => {
   };
 
   const handleToggleGhostMode = async () => {
+    // 🛡️ Ghost Shield is permanently locked ON during interviews
     if (window.ghostAPI) {
-      const active = await window.ghostAPI.toggleGhostMode();
-      setIsGhostActive(active);
+      await window.ghostAPI.toggleGhostMode();
+      setIsGhostActive(true);
     }
+    setQuickToast('Ghost Shield is permanently locked ON for stealth protection 🛡️');
+    setTimeout(() => setQuickToast(null), 2500);
   };
 
   const handleTestKey = async (providerOverride?: 'gemini' | 'groq' | 'openrouter' | 'router') => {
@@ -1066,23 +1069,23 @@ const App: React.FC = () => {
           <div className="flex items-center gap-2 no-drag">
             <button
               onClick={handleToggleGhostMode}
-              title={isGhostActive ? 'Ghost Shield Active — invisible in Zoom, Meet, OBS (Alt+G)' : 'Ghost Mode Disabled (Alt+G)'}
+              title="Ghost Shield Locked ON — 100% invisible in Zoom, Meet, Teams, OBS (Protection is permanently locked on)"
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all duration-200"
               style={{
-                background: isGhostActive ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
-                border: `1px solid ${isGhostActive ? 'rgba(16,185,129,0.25)' : 'rgba(245,158,11,0.25)'}`,
-                color: isGhostActive ? '#34d399' : '#fbbf24',
+                background: 'rgba(16,185,129,0.1)',
+                border: '1px solid rgba(16,185,129,0.25)',
+                color: '#34d399',
               }}
             >
               <span
                 className="w-1.5 h-1.5 rounded-full"
                 style={{
-                  background: isGhostActive ? '#34d399' : '#fbbf24',
-                  animation: isGhostActive ? 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' : 'none',
+                  background: '#34d399',
+                  animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
                 }}
               />
-              {isGhostActive ? <Shield className="w-3 h-3" /> : <ShieldOff className="w-3 h-3" />}
-              <span>{isGhostActive ? 'Ghost Shield' : 'Visible'}</span>
+              <Shield className="w-3 h-3" />
+              <span>Ghost Shield (Locked ON)</span>
             </button>
 
             {/* Click-Through Mode Toggle */}
@@ -1298,7 +1301,7 @@ const App: React.FC = () => {
                   <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+B</kbd> Big ↔ Normal Size</div>
                   <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+P</kbd> Cycle Provider</div>
                   <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+X</kbd> Click-Through</div>
-                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+G</kbd> Ghost Shield</div>
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+G</kbd> Ghost Shield (Locked ON)</div>
                   <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Esc</kbd> Cancel / Dismiss</div>
                 </div>
               </div>
@@ -1813,26 +1816,23 @@ const App: React.FC = () => {
                       <ShieldOff className="w-4 h-4" style={{ color: '#fbbf24' }} />
                     )}
                     <div>
-                      <div className="text-[12px] font-semibold" style={{ color: isGhostActive ? '#34d399' : '#fbbf24' }}>
-                        {isGhostActive ? '🛡️ True Ghost Mode Active' : '⚠️ Ghost Mode Disabled'}
+                      <div className="text-[12px] font-semibold text-emerald-400">
+                        🛡️ Ghost Shield Locked ON
                       </div>
                       <div className="text-[11px]" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                        {isGhostActive
-                          ? 'This window is 100% invisible in Zoom, Meet, Teams, OBS & Discord screen share'
-                          : 'This window is currently visible on screen share. Click Ghost Shield to re-enable.'}
+                        Permanently locked ON to eliminate any risk of accidental screen leaks during interviews. Window is 100% invisible in Zoom, Meet, Teams, OBS & Discord screen share.
                       </div>
                     </div>
-                    <button
-                      onClick={handleToggleGhostMode}
-                      className="ml-auto px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all"
+                    <div
+                      className="ml-auto px-2.5 py-1 rounded-lg text-[10px] font-semibold cursor-default select-none"
                       style={{
-                        background: isGhostActive ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
-                        color: isGhostActive ? '#34d399' : '#fbbf24',
-                        border: `1px solid ${isGhostActive ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)'}`,
+                        background: 'rgba(16,185,129,0.15)',
+                        color: '#34d399',
+                        border: '1px solid rgba(16,185,129,0.3)',
                       }}
                     >
-                      {isGhostActive ? 'Disable' : 'Enable'}
-                    </button>
+                      Locked ON ✓
+                    </div>
                   </div>
                   <div
                     className="text-[10px] font-mono px-2 py-1.5 rounded-lg"

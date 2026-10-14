@@ -22,6 +22,44 @@ let isClickThroughActive: boolean = false;
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 // ─────────────────────────────────────────────────────────────
+// Stealth Enforcement Guard & Heartbeat Watchdog
+// ─────────────────────────────────────────────────────────────
+let stealthHeartbeatTimer: NodeJS.Timeout | null = null;
+
+/**
+ * 🛡️ Ultra-Stealth Enforcement Guard:
+ * Permanently re-asserts WDA_EXCLUDEFROMCAPTURE (setContentProtection),
+ * screen-saver tier alwaysOnTop, and skipTaskbar against Windows DWM surface recreation.
+ */
+function enforceStealthProtection(win?: BrowserWindow | null): void {
+  const target = win || mainWindow;
+  if (!target || target.isDestroyed()) return;
+  try {
+    target.setContentProtection(true);
+    target.setAlwaysOnTop(true, 'screen-saver', 3);
+    target.setSkipTaskbar(true);
+  } catch (err) {
+    // Non-fatal if OS window handle is temporarily transitioning
+  }
+}
+
+function startStealthHeartbeat(): void {
+  if (stealthHeartbeatTimer) clearInterval(stealthHeartbeatTimer);
+  stealthHeartbeatTimer = setInterval(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      enforceStealthProtection(mainWindow);
+    }
+  }, 1000);
+}
+
+function stopStealthHeartbeat(): void {
+  if (stealthHeartbeatTimer) {
+    clearInterval(stealthHeartbeatTimer);
+    stealthHeartbeatTimer = null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // Window Creation
 // ─────────────────────────────────────────────────────────────
 function createGhostWindow(): BrowserWindow {
@@ -69,6 +107,18 @@ function createGhostWindow(): BrowserWindow {
 
   // Keep always on top even above fullscreen apps (level 3 = screen-saver level)
   win.setAlwaysOnTop(true, 'screen-saver', 3);
+
+  // Exclude from taskbar & Alt-Tab switcher
+  win.setSkipTaskbar(true);
+
+  // 🛡️ Event-Driven Shield Re-Assertion:
+  // Hook into all window lifecycle events so that any DWM surface recreation,
+  // restore from minimize, resize, or focus change immediately re-applies content protection
+  win.on('show', () => enforceStealthProtection(win));
+  win.on('restore', () => enforceStealthProtection(win));
+  win.on('resize', () => enforceStealthProtection(win));
+  win.on('focus', () => enforceStealthProtection(win));
+  win.on('moved', () => enforceStealthProtection(win));
 
   if (isDev) {
     win.loadURL('http://localhost:5180').catch(() => {
@@ -158,14 +208,8 @@ function createTray(): void {
       },
       { type: 'separator' },
       {
-        label: `Ghost Shield: ${isGhostModeActive ? 'ON ✓' : 'OFF ✗'}`,
-        click: () => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            isGhostModeActive = !isGhostModeActive;
-            mainWindow.setContentProtection(isGhostModeActive);
-            updateTrayContextMenu();
-          }
-        },
+        label: 'Ghost Shield: LOCKED ON (Permanent Stealth ✓)',
+        enabled: false,
       },
       { type: 'separator' },
       {
@@ -192,6 +236,7 @@ function toggleWindowVisibility(): void {
   } else {
     mainWindow.show();
     mainWindow.focus();
+    enforceStealthProtection(mainWindow);
   }
 }
 
@@ -225,6 +270,7 @@ function triggerCapture(): void {
   if (!mainWindow.isVisible()) {
     mainWindow.show();
     mainWindow.focus();
+    enforceStealthProtection(mainWindow);
   }
   // Small delay so the window can come to front first
   setTimeout(() => {
@@ -239,6 +285,7 @@ function triggerListen(): void {
   if (!mainWindow.isVisible()) {
     mainWindow.show();
     mainWindow.focus();
+    enforceStealthProtection(mainWindow);
   }
   mainWindow.webContents.send('ghost:trigger-listen-hotkey');
 }
@@ -251,6 +298,7 @@ function toggleWindowSize(): boolean {
   const targetWidth = isExpanded ? 640 : 800;
   const targetHeight = isExpanded ? 720 : Math.min(880, Math.round(currentDisplay.workArea.height * 0.92));
   mainWindow.setSize(targetWidth, targetHeight, true);
+  enforceStealthProtection(mainWindow);
   mainWindow.webContents.send('ghost:window-size-toggled', !isExpanded);
   return !isExpanded;
 }
@@ -606,12 +654,14 @@ function setupIpcHandlers(): void {
     return geminiService.testApiKey(apiKey.trim());
   });
 
-  // ── 4. Ghost Shield Toggle ──
+  // ── 4. Ghost Shield Permanent Lock ──
   ipcMain.handle('ghost:toggle-ghost-mode', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return isGhostModeActive;
-    isGhostModeActive = !isGhostModeActive;
-    mainWindow.setContentProtection(isGhostModeActive);
-    return isGhostModeActive;
+    // 🛡️ Permanently locked ON during interviews to eliminate any accidental leak risk
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      isGhostModeActive = true;
+      enforceStealthProtection(mainWindow);
+    }
+    return true; // Always locked ON
   });
 
   // ── 5. Dynamic Window Height Resizing ──
@@ -622,6 +672,7 @@ function setupIpcHandlers(): void {
     const maxHeight = Math.round(currentDisplay.workArea.height * 0.95);
     const targetHeight = Math.min(Math.max(height, 52), maxHeight);
     mainWindow.setSize(currentWidth, targetHeight, true);
+    enforceStealthProtection(mainWindow);
   });
 
   ipcMain.handle('ghost:toggle-window-size', () => {
@@ -704,19 +755,23 @@ if (!gotTheLock) {
     mainWindow = createGhostWindow();
     createTray();
     registerGlobalHotkeys();
+    startStealthHeartbeat();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         mainWindow = createGhostWindow();
+        startStealthHeartbeat();
       }
     });
   });
 
   app.on('will-quit', () => {
+    stopStealthHeartbeat();
     globalShortcut.unregisterAll();
   });
 
   app.on('window-all-closed', () => {
+    stopStealthHeartbeat();
     if (process.platform !== 'darwin') {
       app.quit();
     }
