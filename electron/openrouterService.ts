@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { configService } from './storeService';
+import { configService, buildEffectiveSystemInstruction } from './storeService';
 import { ChatMessage } from './geminiService';
 
 export interface OpenRouterModelInfo {
@@ -142,8 +142,7 @@ export class OpenRouterService {
       ];
     }
 
-    const systemInstruction = config.systemInstruction?.trim() ||
-      'You are an expert AI assistant embedded in a private, invisible overlay. Provide concise, clear, and direct answers.';
+    const systemInstruction = buildEffectiveSystemInstruction(config);
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemInstruction },

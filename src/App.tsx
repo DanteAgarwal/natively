@@ -38,6 +38,8 @@ import {
   Maximize2,
 } from 'lucide-react';
 import { MarkdownRenderer } from './components/MarkdownRenderer';
+import { InterviewContextModal } from './components/InterviewContextModal';
+import { UserProfileContext, DEFAULT_USER_PROFILE_CONTEXT } from './types/profile';
 
 interface Message {
   id: string;
@@ -64,6 +66,7 @@ interface AppConfig {
   temperature: number;
   autoFallback: boolean;
   selectedAudioOutputDevice?: string;
+  userProfileContext?: UserProfileContext;
 }
 
 type ActiveTab = 'chat' | 'capture';
@@ -115,8 +118,10 @@ const App: React.FC = () => {
     groqModel: 'llama-3.3-70b-versatile',
     temperature: 0.7,
     autoFallback: true,
+    userProfileContext: DEFAULT_USER_PROFILE_CONTEXT,
   });
 
+  const [isContextModalOpen, setIsContextModalOpen] = useState(false);
   const [testStatus, setTestStatus] = useState<{ testing: boolean; success?: boolean; error?: string } | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [captureStatus, setCaptureStatus] = useState<'idle' | 'capturing' | 'analyzing'>('idle');
@@ -179,6 +184,9 @@ const App: React.FC = () => {
           }
           if (cfg.selectedAudioOutputDevice) {
             setSelectedOutputDevice(cfg.selectedAudioOutputDevice);
+          }
+          if (cfg.userProfileContext) {
+            cfg.userProfileContext = { ...DEFAULT_USER_PROFILE_CONTEXT, ...cfg.userProfileContext };
           }
           setConfig((prev) => ({ ...prev, ...cfg }));
         }
@@ -507,7 +515,14 @@ const App: React.FC = () => {
         return;
       }
 
-      // 17. Tab Switching (Alt+1 for Chat, Alt+2 for Screen AI)
+      // 17. Toggle Interview Persona & JD Context Modal (Alt+U or Alt+J)
+      if (e.altKey && (e.key.toLowerCase() === 'u' || e.key.toLowerCase() === 'j')) {
+        e.preventDefault();
+        setIsContextModalOpen((prev) => !prev);
+        return;
+      }
+
+      // 18. Tab Switching (Alt+1 for Chat, Alt+2 for Screen AI)
       if (e.altKey && e.key === '1') {
         e.preventDefault();
         setActiveTab('chat');
@@ -522,7 +537,7 @@ const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSettingsOpen, showShortcuts, isListening, isStreaming, showTranscriptDrawer, inputPrompt]);
+  }, [isSettingsOpen, isContextModalOpen, showShortcuts, isListening, isStreaming, showTranscriptDrawer, inputPrompt]);
 
   // Auto-scroll when messages update
   useEffect(() => {
@@ -786,7 +801,11 @@ const App: React.FC = () => {
       return;
     }
     const recent = sourceList.slice(-6).map((t) => `[${t.speaker.toUpperCase()}]: ${t.text}`).join('\n');
-    executePrompt(`Based on this live meeting conversation:\n\n${recent}\n\nWhat is the best, most direct, and impressive answer to what was just asked or discussed? Give me the answer formatted concisely to speak aloud.`);
+    const profile = config.userProfileContext;
+    const personaInstruction = profile?.enabled
+      ? `\n\n[Persona Directive]: Answer speaking directly in first-person ("I...") as the candidate applying for ${profile.targetRole || 'the position'}${profile.targetCompany ? ` at ${profile.targetCompany}` : ''}. Tailor your terminology, depth, and tone for a ${profile.audienceType} interviewer. Highlight relevant experience from my resume.`
+      : '';
+    executePrompt(`Based on this live meeting conversation:\n\n${recent}\n\nWhat is the best, most direct, and impressive answer to what was just asked or discussed? Give me the answer formatted concisely to speak aloud.${personaInstruction}`);
   };
 
   const handleRecapMeeting = async () => {
@@ -805,7 +824,11 @@ const App: React.FC = () => {
       return;
     }
     const fullTranscript = sourceList.map((t) => `[${t.speaker.toUpperCase()}]: ${t.text}`).join('\n');
-    executePrompt(`Please provide a concise executive summary, key decisions, and action items from this meeting conversation transcript:\n\n${fullTranscript}`);
+    const profile = config.userProfileContext;
+    const personaInstruction = profile?.enabled
+      ? ` Also highlight key takeaways, questions answered, and strategic next steps relevant to my candidacy for ${profile.targetRole || 'the role'}.`
+      : '';
+    executePrompt(`Please provide a concise executive summary, key decisions, and action items from this meeting conversation transcript:\n\n${fullTranscript}${personaInstruction}`);
   };
 
   const handleFollowUp = async () => {
@@ -814,7 +837,11 @@ const App: React.FC = () => {
     const context = sourceList && sourceList.length > 0
       ? sourceList.slice(-8).map((t) => `[${t.speaker.toUpperCase()}]: ${t.text}`).join('\n')
       : messages.slice(-4).map((m) => `${m.role}: ${m.text}`).join('\n');
-    executePrompt(`Based on this ongoing discussion:\n\n${context}\n\nSuggest 3 sharp, strategic follow-up questions I can ask right now to steer the conversation effectively.`);
+    const profile = config.userProfileContext;
+    const personaInstruction = profile?.enabled
+      ? `\n\n[Persona Directive]: Tailor these questions for a ${profile.audienceType} interviewer${profile.targetCompany ? ` at ${profile.targetCompany}` : ''} to demonstrate deep ownership and strategic alignment with ${profile.targetRole || 'the target role'}.`
+      : '';
+    executePrompt(`Based on this ongoing discussion:\n\n${context}\n\nSuggest 3 sharp, strategic follow-up questions I can ask right now to steer the conversation effectively.${personaInstruction}`);
   };
 
   const handleShorten = async () => {
@@ -904,9 +931,13 @@ const App: React.FC = () => {
       try {
         const activeModeObj = ASSISTANT_MODES.find((m) => m.id === assistantMode);
         const basePrompt = customPrompt || capturePrompt || 'Analyze this screen carefully. If there is a question, coding problem, error, or task — provide the direct, correct answer or solution. Be concise and structured.';
+        const profile = config.userProfileContext;
+        const personaPrefix = profile?.enabled
+          ? `[Context: Candidate for ${profile.targetRole || profile.candidateTitle || 'the position'} | Audience: ${profile.audienceType}]\n`
+          : '';
         const finalPrompt = assistantMode !== 'general' && activeModeObj
-          ? `[Mode Instruction: ${activeModeObj.prompt}]\n\n${basePrompt}`
-          : basePrompt;
+          ? `[Mode Instruction: ${activeModeObj.prompt}]\n\n${personaPrefix}${basePrompt}`
+          : `${personaPrefix}${basePrompt}`;
 
         await window.ghostAPI.captureAndAnalyze(finalPrompt);
       } catch (err: any) {
@@ -914,7 +945,7 @@ const App: React.FC = () => {
         setCaptureStatus('idle');
       }
     },
-    [isStreaming, config.provider, config.geminiApiKey, config.groqApiKey, config.openrouterApiKey, config.routerPreset, config.routerBaseUrl, capturePrompt, assistantMode]
+    [isStreaming, config.provider, config.geminiApiKey, config.groqApiKey, config.openrouterApiKey, config.routerPreset, config.routerBaseUrl, config.userProfileContext, capturePrompt, assistantMode]
   );
 
   const handleStopStream = () => {
@@ -970,6 +1001,19 @@ const App: React.FC = () => {
       setTimeout(() => setSaveSuccess(false), 2000);
       setIsSettingsOpen(false);
     }
+  };
+
+  const handleSaveUserProfileContext = async (updated: UserProfileContext) => {
+    const newConfig: AppConfig = {
+      ...config,
+      userProfileContext: updated,
+    };
+    setConfig(newConfig);
+    if (window.ghostAPI) {
+      await window.ghostAPI.saveConfig(newConfig);
+    }
+    setQuickToast(updated.enabled ? 'Interview Persona Active 🎯' : 'Persona Context Saved ✓');
+    setTimeout(() => setQuickToast(null), 2500);
   };
 
   const hasApiKey =
@@ -1126,6 +1170,26 @@ const App: React.FC = () => {
               <Info className="w-3.5 h-3.5" />
             </button>
             <button
+              onClick={() => setIsContextModalOpen(true)}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all hover:bg-white/5"
+              style={{
+                background: config.userProfileContext?.enabled ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.04)',
+                border: config.userProfileContext?.enabled ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(255, 255, 255, 0.08)',
+                color: config.userProfileContext?.enabled ? '#34d399' : 'rgba(255, 255, 255, 0.45)',
+              }}
+              title="Candidate Persona (Resume, JD, Audience) [Alt+U / Alt+J]"
+            >
+              <Briefcase className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">
+                {config.userProfileContext?.enabled
+                  ? (config.userProfileContext.targetRole || config.userProfileContext.candidateTitle || 'Persona')
+                  : 'Resume & JD'}
+              </span>
+              {config.userProfileContext?.enabled && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              )}
+            </button>
+            <button
               onClick={() => setIsSettingsOpen(true)}
               className="p-1.5 rounded-lg transition-colors hover:bg-white/5"
               style={{ color: 'rgba(255,255,255,0.35)' }}
@@ -1211,6 +1275,7 @@ const App: React.FC = () => {
               <div>
                 <div className="font-semibold text-emerald-400 mb-1 flex items-center gap-1">🎯 Meeting Actions</div>
                 <div className="space-y-1">
+                  <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+U / J</kbd> Resume & JD Persona</div>
                   <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+W</kbd> What to answer?</div>
                   <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+R</kbd> Recap Meeting</div>
                   <div><kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">Alt+F</kbd> Follow Up Questions</div>
@@ -1354,10 +1419,88 @@ const App: React.FC = () => {
                   </button>
                 ))}
               </div>
-              {exportNotice && (
-                <span className="text-[10px] text-emerald-400 font-medium">{exportNotice}</span>
-              )}
+              <div className="flex items-center gap-1.5 ml-auto">
+                <button
+                  onClick={() => setIsContextModalOpen(true)}
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-all ${
+                    config.userProfileContext?.enabled
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs'
+                      : 'bg-zinc-800/80 text-zinc-400 hover:text-white border border-zinc-700/60'
+                  }`}
+                  title="Configure Candidate Resume, JD & Audience Persona [Alt+U / Alt+J]"
+                >
+                  <Briefcase className="w-2.5 h-2.5 text-emerald-400" />
+                  <span>
+                    {config.userProfileContext?.enabled
+                      ? `Persona: ${config.userProfileContext.targetRole || config.userProfileContext.candidateTitle || 'Active'} (${config.userProfileContext.audienceType})`
+                      : 'Resume & JD'}
+                  </span>
+                  {config.userProfileContext?.enabled && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
+                  )}
+                </button>
+                {exportNotice && (
+                  <span className="text-[10px] text-emerald-400 font-medium">{exportNotice}</span>
+                )}
+              </div>
             </div>
+
+            {/* ── Active Context & Persona Banner ── */}
+            {config.userProfileContext?.enabled && (
+              <div
+                className="shrink-0 mx-3 mt-1.5 px-3 py-1.5 rounded-xl flex items-center justify-between text-[11px]"
+                style={{
+                  background: 'rgba(16, 185, 129, 0.08)',
+                  border: '1px solid rgba(16, 185, 129, 0.22)',
+                  color: '#6ee7b7',
+                }}
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse" />
+                  <div className="truncate">
+                    <span className="font-semibold text-emerald-300">
+                      {config.userProfileContext.candidateName ? `${config.userProfileContext.candidateName} • ` : ''}
+                      {config.userProfileContext.targetRole || config.userProfileContext.candidateTitle || 'Candidate'}
+                    </span>
+                    {config.userProfileContext.targetCompany && (
+                      <span className="text-emerald-400/80"> @ {config.userProfileContext.targetCompany}</span>
+                    )}
+                    <span className="ml-1.5 px-1.5 py-0.2 rounded bg-emerald-950/60 border border-emerald-500/30 text-[9px] font-mono text-emerald-300">
+                      Audience: {config.userProfileContext.audienceType}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 ml-2">
+                  <button
+                    onClick={() => setIsContextModalOpen(true)}
+                    className="text-[10px] font-semibold text-emerald-300 hover:text-white underline"
+                  >
+                    Edit Context
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const updated = {
+                        ...config,
+                        userProfileContext: {
+                          ...config.userProfileContext!,
+                          enabled: false,
+                        },
+                      };
+                      setConfig(updated);
+                      if (window.ghostAPI) {
+                        await window.ghostAPI.saveConfig(updated);
+                      }
+                      setQuickToast('Persona Context Paused');
+                      setTimeout(() => setQuickToast(null), 2000);
+                    }}
+                    className="text-[10px] text-zinc-400 hover:text-red-300 transition-colors"
+                    title="Pause persona context"
+                  >
+                    Pause
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* ── CHAT TAB ── */}
             {activeTab === 'chat' && (
@@ -2354,6 +2497,44 @@ const App: React.FC = () => {
               </label>
             </div>
 
+            {/* Candidate Persona & JD Context Card */}
+            <div
+              className="p-3 rounded-xl space-y-2"
+              style={{
+                background: config.userProfileContext?.enabled ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                border: config.userProfileContext?.enabled ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid rgba(255, 255, 255, 0.08)',
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Briefcase className="w-4 h-4 text-emerald-400" />
+                  <span className="text-xs font-semibold text-white">Resume, JD & Interview Persona</span>
+                </div>
+                {config.userProfileContext?.enabled ? (
+                  <span className="text-[10px] font-semibold text-emerald-400 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Active ({config.userProfileContext.audienceType})
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-zinc-500 font-mono">Inactive</span>
+                )}
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Provide your full resume, target job description (JD), and interviewer audience so the AI speaks directly in first-person as you, answering technical questions at the right depth.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSettingsOpen(false);
+                  setIsContextModalOpen(true);
+                }}
+                className="w-full py-1.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-all text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30"
+              >
+                <span>Configure Resume, JD & Audience Persona</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
             {/* System Instructions */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>
@@ -2454,6 +2635,14 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── Interview Persona & JD Context Modal ── */}
+      <InterviewContextModal
+        isOpen={isContextModalOpen}
+        onClose={() => setIsContextModalOpen(false)}
+        context={config.userProfileContext || DEFAULT_USER_PROFILE_CONTEXT}
+        onSave={handleSaveUserProfileContext}
+      />
     </div>
   );
 };

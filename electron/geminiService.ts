@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { configService } from './storeService';
+import { configService, buildEffectiveSystemInstruction } from './storeService';
 
 export interface ChatMessage {
   role: 'user' | 'model';
@@ -71,8 +71,7 @@ export class GeminiService {
       ...ACTIVE_GEMINI_MODELS.filter((m) => m !== requestedModel),
     ];
 
-    const systemInstruction = config.systemInstruction?.trim() ||
-      'You are an expert AI assistant embedded in a private, invisible overlay. Provide concise, clear, and direct answers. When analyzing screenshots, identify problems and provide immediate solutions. Format responses with markdown for readability.';
+    const systemInstruction = buildEffectiveSystemInstruction(config);
 
     // Prune history to last 12 messages to keep requests fast and resilient
     const prunedHistory = history.slice(-12);

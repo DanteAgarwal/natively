@@ -1,5 +1,5 @@
 import Groq from 'groq-sdk';
-import { configService } from './storeService';
+import { configService, buildEffectiveSystemInstruction } from './storeService';
 import { ChatMessage } from './geminiService';
 
 export interface GroqModelInfo {
@@ -87,8 +87,7 @@ export class GroqService {
       ...DEFAULT_FALLBACK_CHAIN.filter((m) => m !== requestedModel),
     ];
 
-    const systemInstruction = config.systemInstruction?.trim() ||
-      'You are an expert AI assistant embedded in a private, invisible overlay. Provide concise, clear, and direct answers.';
+    const systemInstruction = buildEffectiveSystemInstruction(config);
 
     const messages: any[] = [
       { role: 'system', content: systemInstruction }
