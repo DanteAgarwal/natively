@@ -8,6 +8,15 @@ export interface GhostAPI {
   getConfig: () => Promise<any>;
   saveConfig: (config: any) => Promise<any>;
   testApiKey: (key: string, provider?: 'gemini' | 'groq' | 'openrouter' | 'router', options?: { baseUrl?: string; model?: string }) => Promise<{ success: boolean; error?: string }>;
+  // Model Registry & Diagnostics (PRD §6.8, §6.9)
+  getModels?: () => Promise<any[]>;
+  getModelDiagnostics?: () => Promise<any>;
+  getQuotas?: () => Promise<any[]>;
+  getCircuits?: () => Promise<any[]>;
+  refreshCatalogs?: () => Promise<any[]>;
+  testModel?: (providerId: string, modelId: string) => Promise<{ ok: boolean; latencyMs: number; error?: string }>;
+  getModelPreferences?: () => Promise<any>;
+  updateModelPreferences?: (preferences: any) => Promise<any>;
   // Meeting Audio (Rust Native Module - Speaker / System Audio)
   startMeetingAudio: (deviceId?: string) => Promise<{ success: boolean; error?: string }>;
   stopMeetingAudio: () => Promise<{ success: boolean; error?: string }>;

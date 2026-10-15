@@ -7,6 +7,19 @@ import { routerService } from './routerService';
 import { captureScreen } from './screenshotService';
 import { configService } from './storeService';
 import { nativeAudioService } from './nativeAudioService';
+import {
+  modelRegistry,
+  capabilityResolver,
+  fallbackOrchestrator,
+  circuitBreakerManager,
+  quotaTracker,
+  diagnostics,
+  healthCheckManager,
+  modelCatalogSync,
+  modelRegistryStore,
+  providerRegistry,
+  ProviderId,
+} from './models';
 
 try {
   require('dotenv').config();
@@ -358,7 +371,7 @@ function registerGlobalHotkeys(): void {
 let currentStreamAbort = false;
 
 // ─────────────────────────────────────────────────────────────
-// Unified AI Dispatcher (Gemini, Groq, OpenRouter & Universal Router with Auto-Fallback)
+// Unified AI Dispatcher & Model Router (PRD Phases 1–3)
 // ─────────────────────────────────────────────────────────────
 async function streamAiResponse(params: {
   prompt: string;
@@ -367,100 +380,35 @@ async function streamAiResponse(params: {
   onChunk: (chunk: string) => void;
 }): Promise<string> {
   const config = configService.getConfig();
-  const primaryProvider = config.provider || 'gemini';
+  const primaryProvider = (config.provider || 'gemini') as ProviderId;
+  const preferences = modelRegistryStore.getPreferences();
 
-  const streamParams = {
-    ...params,
-    isAborted: () => currentStreamAbort,
-  };
+  // 1. Resolve request intent, modality constraints & task profile (PRD §6.3, §8.1)
+  const routingRequest = capabilityResolver.resolveRequest({
+    prompt: params.prompt,
+    imageBase64: params.imageBase64,
+    billingMode: preferences.billingMode,
+    privacyMode: preferences.privacyMode,
+    preferredProviderId: primaryProvider,
+    preferredModelId: config.model,
+  });
 
-  // Screen capture & vision handling:
-  // If Groq or a text-only router is active and an image is attached, route vision to OpenRouter or Gemini
-  if (params.imageBase64 && (primaryProvider === 'groq' || (primaryProvider === 'router' && config.routerPreset !== 'custom'))) {
-    const geminiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
-    const openrouterKey = config.openrouterApiKey || process.env.OPENROUTER_API_KEY;
+  // 2. Dispatch via FallbackOrchestrator with circuit breaking & quota tracking (PRD §6.5)
+  const result = await fallbackOrchestrator.execute(
+    routingRequest,
+    {
+      prompt: params.prompt,
+      imageBase64: params.imageBase64,
+      history: params.history,
+      onChunk: params.onChunk,
+      isAborted: () => currentStreamAbort,
+    },
+    {
+      maxProviderSwitches: config.autoFallback ? (preferences.hardCaps.maxFallbackAttempts ?? 2) : 0,
+    },
+  );
 
-    if (geminiKey?.trim()) {
-      try {
-        params.onChunk(`> ℹ️ *${primaryProvider.toUpperCase()} is active for text. Routing screen capture to Gemini Vision...*\n\n`);
-        return await geminiService.streamGenerate(streamParams);
-      } catch (geminiErr: any) {
-        if (openrouterKey?.trim()) {
-          params.onChunk(`\n\n> ⚠️ *Gemini Vision: ${geminiErr?.message || 'Transient failure'}. Auto-falling back to OpenRouter Vision...*\n\n`);
-          return await openrouterService.streamGenerate(streamParams);
-        }
-        throw geminiErr;
-      }
-    } else if (openrouterKey?.trim()) {
-      try {
-        params.onChunk(`> ℹ️ *${primaryProvider.toUpperCase()} is active for text. Routing screen capture to OpenRouter Free Vision...*\n\n`);
-        return await openrouterService.streamGenerate(streamParams);
-      } catch (orErr: any) {
-        if (geminiKey?.trim()) {
-          params.onChunk(`\n\n> ⚠️ *OpenRouter Vision: ${orErr?.message || 'Transient failure'}. Auto-falling back to Gemini Vision...*\n\n`);
-          return await geminiService.streamGenerate(streamParams);
-        }
-        throw orErr;
-      }
-    } else if (primaryProvider === 'groq') {
-      throw new Error(
-        'Groq currently does not support screen/image analysis. ' +
-        'Please add a free OpenRouter key or Gemini key in Settings to enable screen vision analysis.'
-      );
-    }
-  }
-
-  const runProvider = async (provider: 'gemini' | 'groq' | 'openrouter' | 'router') => {
-    if (provider === 'groq') {
-      return await groqService.streamGenerate(streamParams);
-    } else if (provider === 'openrouter') {
-      return await openrouterService.streamGenerate(streamParams);
-    } else if (provider === 'router') {
-      return await routerService.streamGenerate(streamParams);
-    } else {
-      return await geminiService.streamGenerate(streamParams);
-    }
-  };
-
-  try {
-    return await runProvider(primaryProvider);
-  } catch (primaryErr: any) {
-    if (currentStreamAbort) {
-      return '';
-    }
-    if (config.autoFallback) {
-      // Find candidate fallback providers that have valid credentials or are zero-key
-      const fallbackOptions: Array<'gemini' | 'groq' | 'openrouter' | 'router'> = [
-        'openrouter',
-        'gemini',
-        'groq',
-        'router',
-      ].filter((p) => p !== primaryProvider) as any;
-
-      for (const fallbackProvider of fallbackOptions) {
-        const hasKey =
-          fallbackProvider === 'gemini'
-            ? !!config.geminiApiKey?.trim()
-            : fallbackProvider === 'groq'
-            ? !!config.groqApiKey?.trim()
-            : fallbackProvider === 'openrouter'
-            ? !!config.openrouterApiKey?.trim()
-            : (config.routerPreset === 'pollinations' || !!config.routerBaseUrl?.trim());
-
-        if (hasKey) {
-          const errorSummary = primaryErr?.message || 'Primary provider failed';
-          params.onChunk(`\n\n> ⚠️ *${primaryProvider.toUpperCase()} error: ${errorSummary}. Auto-falling back to ${fallbackProvider.toUpperCase()}...*\n\n`);
-          try {
-            return await runProvider(fallbackProvider);
-          } catch (fallbackErr) {
-            console.warn(`[Dispatcher] Fallback provider ${fallbackProvider} also failed:`, fallbackErr);
-            // Continue to next fallback in list
-          }
-        }
-      }
-    }
-    throw primaryErr;
-  }
+  return result.text;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -719,6 +667,64 @@ function setupIpcHandlers(): void {
       return { success: false, error: err?.message || 'Failed to save session' };
     }
   });
+
+  // ── 8. Model Registry & Intelligent Router (PRD §6.8, §6.9) ──
+  ipcMain.handle('ghost:get-models', () => {
+    return modelRegistry.getAll();
+  });
+
+  ipcMain.handle('ghost:get-diagnostics', () => {
+    return {
+      metrics: diagnostics.getMetrics(),
+      recentTraces: diagnostics.getTraces(50),
+    };
+  });
+
+  ipcMain.handle('ghost:get-quotas', () => {
+    return quotaTracker.getAllSnapshots();
+  });
+
+  ipcMain.handle('ghost:get-circuits', () => {
+    return circuitBreakerManager.getAllSnapshots();
+  });
+
+  ipcMain.handle('ghost:refresh-catalogs', async () => {
+    const results: any[] = [];
+    try {
+      const orAdapter = providerRegistry.getAdapter('openrouter');
+      const orModels = await orAdapter.listModels();
+      results.push(modelCatalogSync.processDiscoveredModels('openrouter', orModels));
+    } catch (e: any) {
+      console.warn('[CatalogSync] OpenRouter refresh failed:', e.message);
+    }
+    return results;
+  });
+
+  ipcMain.handle('ghost:test-model', async (_event, { providerId, modelId }: { providerId: string; modelId: string }) => {
+    try {
+      const adapter = providerRegistry.getAdapter(providerId as any);
+      const result = await adapter.healthCheck(modelId);
+      healthCheckManager.recordProbeResult(providerId as any, modelId, {
+        ok: result.ok,
+        latencyMs: result.latencyMs,
+        testedCapability: 'basic_ping',
+        error: result.error,
+        timestamp: Date.now(),
+      });
+      return result;
+    } catch (err: any) {
+      return { ok: false, latencyMs: 0, error: err?.message || 'Probe failed' };
+    }
+  });
+
+  ipcMain.handle('ghost:get-model-preferences', () => {
+    return modelRegistryStore.getPreferences();
+  });
+
+  ipcMain.handle('ghost:update-model-preferences', (_event, patch: any) => {
+    return modelRegistryStore.updatePreferences(patch);
+  });
+
 
   // ── 8. Window Controls ──
   ipcMain.handle('ghost:minimize', () => {

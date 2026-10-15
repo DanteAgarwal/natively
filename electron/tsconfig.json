@@ -21,6 +21,7 @@
     "routerService.ts",
     "screenshotService.ts",
     "storeService.ts",
-    "nativeAudioService.ts"
+    "nativeAudioService.ts",
+    "models/**/*.ts"
   ]
 }

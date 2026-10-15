@@ -12,6 +12,16 @@ export interface GhostAPI {
   saveConfig: (config: any) => Promise<any>;
   testApiKey: (key: string, provider?: 'gemini' | 'groq' | 'openrouter' | 'router', options?: { baseUrl?: string; model?: string }) => Promise<{ success: boolean; error?: string }>;
 
+  // Model Registry & Diagnostics (PRD §6.8, §6.9)
+  getModels: () => Promise<any[]>;
+  getModelDiagnostics: () => Promise<any>;
+  getQuotas: () => Promise<any[]>;
+  getCircuits: () => Promise<any[]>;
+  refreshCatalogs: () => Promise<any[]>;
+  testModel: (providerId: string, modelId: string) => Promise<{ ok: boolean; latencyMs: number; error?: string }>;
+  getModelPreferences: () => Promise<any>;
+  updateModelPreferences: (preferences: any) => Promise<any>;
+
   // Meeting Audio (Rust Native Module - Speaker / System Audio)
   startMeetingAudio: (deviceId?: string) => Promise<{ success: boolean; error?: string }>;
   stopMeetingAudio: () => Promise<{ success: boolean; error?: string }>;
@@ -54,6 +64,16 @@ const api: GhostAPI = {
   getConfig: () => ipcRenderer.invoke('ghost:get-config'),
   saveConfig: (config) => ipcRenderer.invoke('ghost:save-config', config),
   testApiKey: (key, provider, options) => ipcRenderer.invoke('ghost:test-api-key', { apiKey: key, provider, baseUrl: options?.baseUrl, model: options?.model }),
+
+  // Model Registry & Diagnostics
+  getModels: () => ipcRenderer.invoke('ghost:get-models'),
+  getModelDiagnostics: () => ipcRenderer.invoke('ghost:get-diagnostics'),
+  getQuotas: () => ipcRenderer.invoke('ghost:get-quotas'),
+  getCircuits: () => ipcRenderer.invoke('ghost:get-circuits'),
+  refreshCatalogs: () => ipcRenderer.invoke('ghost:refresh-catalogs'),
+  testModel: (providerId, modelId) => ipcRenderer.invoke('ghost:test-model', { providerId, modelId }),
+  getModelPreferences: () => ipcRenderer.invoke('ghost:get-model-preferences'),
+  updateModelPreferences: (preferences) => ipcRenderer.invoke('ghost:update-model-preferences', preferences),
 
   // Meeting Audio
   startMeetingAudio: (deviceId) => ipcRenderer.invoke('ghost:start-meeting-audio', { deviceId }),

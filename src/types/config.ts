@@ -4,7 +4,7 @@ export interface Message {
   id: string;
   role: 'user' | 'model';
   text: string;
-  timestamp: Date;
+  timestamp: number | Date;
   screenshotPreview?: string;
   isError?: boolean;
 }
