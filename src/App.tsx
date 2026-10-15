@@ -2195,10 +2195,9 @@ const App: React.FC = () => {
                     }}
                   >
                     <option value="llama-3.3-70b-versatile" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>llama-3.3-70b-versatile — Flagship Reasoning & Coding (280 tok/s) ⚡</option>
-                    <option value="llama-3.1-8b-instant" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>llama-3.1-8b-instant — Ultra-Fast Lightweight Model (~560 tok/s) ⚡</option>
-                    <option value="deepseek-r1-distill-qwen-32b" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>deepseek-r1-distill-qwen-32b — Deep Reasoning, Math & Logic (320 tok/s) 🧠</option>
-                    <option value="qwen-2.5-coder-32b" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>qwen-2.5-coder-32b — Specialized Code Synthesis & Debugging 💻</option>
-                    <option value="gemma2-9b-it" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>gemma2-9b-it — Google Gemma 2 on Groq Hardware 🌐</option>
+                    <option value="llama-3.1-8b-instant" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>llama-3.1-8b-instant — Ultra-Fast Lightweight Model (~560 tok/s, 20k TPM) 🚀</option>
+                    <option value="openai/gpt-oss-120b" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>openai/gpt-oss-120b — Flagship 120B Reasoning & Code 🧠</option>
+                    <option value="openai/gpt-oss-20b" className="bg-zinc-900 text-zinc-100 py-2" style={{ backgroundColor: '#18181b', color: '#f4f4f5' }}>openai/gpt-oss-20b — Ultra-Fast 20B Reasoning ⚡</option>
                   </select>
                 </div>
               </>

@@ -96,19 +96,17 @@ export class GeminiService {
     currentParts.push({ text: prompt });
     contents.push({ role: 'user', parts: currentParts });
 
-    const getGenConfigForModel = (modelName: string) => {
+    const getGenConfigForModel = (modelName: string, withThinking: boolean = true) => {
       const genConfig: any = {
         systemInstruction,
         temperature: config.temperature ?? 0.7,
       };
 
-      if (modelName.includes('3.8') || modelName.includes('3.7')) {
+      // Only pass thinkingConfig to models that officially support it (e.g. 3.8, 3.7)
+      // Never send thinkingConfig (even thinkingBudget: 0) to lite models, which causes 400 INVALID_ARGUMENT
+      if (withThinking && (modelName.includes('3.8') || modelName.includes('3.7'))) {
         genConfig.thinkingConfig = {
           thinkingBudget: 1024,
-        };
-      } else if (modelName.includes('3.5-flash-lite') || modelName.includes('2.5')) {
-        genConfig.thinkingConfig = {
-          thinkingBudget: 0,
         };
       }
 
@@ -124,68 +122,81 @@ export class GeminiService {
       }
       attempt++;
 
-      try {
-        if (attempt > 1) {
-          onChunk(`\n\n> 🛡️ *Gemini fault tolerance: Switching to healthy model \`${currentModel}\`...*\n\n`);
-        }
+      // Try first with standard config, and if a 400 error occurs due to parameters, retry once without thinkingConfig
+      for (const allowThinking of [true, false]) {
+        try {
+          if (attempt > 1 && allowThinking) {
+            onChunk(`\n\n> 🛡️ *Gemini fault tolerance: Switching to healthy model \`${currentModel}\`...*\n\n`);
+          }
 
-        const genConfig = getGenConfigForModel(currentModel);
+          const genConfig = getGenConfigForModel(currentModel, allowThinking);
 
-        const responseStream = await ai.models.generateContentStream({
-          model: currentModel,
-          contents,
-          config: genConfig,
-        });
+          const responseStream = await ai.models.generateContentStream({
+            model: currentModel,
+            contents,
+            config: genConfig,
+          });
 
-        let fullText = '';
-        for await (const chunk of responseStream) {
+          let fullText = '';
+          for await (const chunk of responseStream) {
+            if (isAborted && isAborted()) {
+              break;
+            }
+            const text = chunk.text || '';
+            if (text) {
+              fullText += text;
+              onChunk(text);
+            }
+          }
+
+          return fullText;
+        } catch (err: any) {
+          lastError = err;
+          const message: string = err?.message || String(err);
+
+          // Permanent credential or content policy stops
+          if (message.includes('API_KEY_INVALID') || message.includes('API key not valid')) {
+            throw new Error('Invalid Gemini API Key. Please verify your key in Settings.');
+          }
+          if (message.includes('SAFETY')) {
+            throw new Error('Content blocked by Gemini safety filters. Try rephrasing your request.');
+          }
+
           if (isAborted && isAborted()) {
+            return '';
+          }
+
+          // If thinking was enabled and we received a 400 / INVALID_ARGUMENT / thinking error, retry without thinking
+          if (allowThinking && (message.includes('400') || message.includes('INVALID_ARGUMENT') || message.toLowerCase().includes('thinking'))) {
+            continue; // Re-try currentModel with allowThinking = false
+          }
+
+          console.warn(`[GeminiService] Model ${currentModel} encountered error:`, message);
+
+          // Check if recoverable by moving to the next candidate model in the fallback chain
+          const isRecoverable =
+            message.includes('400') ||
+            message.includes('INVALID_ARGUMENT') ||
+            message.includes('404') ||
+            message.includes('NOT_FOUND') ||
+            message.includes('not found') ||
+            message.includes('no longer available') ||
+            message.includes('RESOURCE_EXHAUSTED') ||
+            message.includes('quota') ||
+            message.includes('429') ||
+            message.includes('500') ||
+            message.includes('502') ||
+            message.includes('503') ||
+            message.includes('UNAVAILABLE') ||
+            message.includes('high demand') ||
+            message.includes('overloaded');
+
+          if (!isRecoverable) {
             break;
           }
-          const text = chunk.text || '';
-          if (text) {
-            fullText += text;
-            onChunk(text);
-          }
-        }
-
-        return fullText;
-      } catch (err: any) {
-        lastError = err;
-        const message: string = err?.message || String(err);
-
-        // Permanent credential or content policy stops
-        if (message.includes('API_KEY_INVALID') || message.includes('API key not valid')) {
-          throw new Error('Invalid Gemini API Key. Please verify your key in Settings.');
-        }
-        if (message.includes('SAFETY')) {
-          throw new Error('Content blocked by Gemini safety filters. Try rephrasing your request.');
-        }
-
-        if (isAborted && isAborted()) {
-          return '';
-        }
-
-        console.warn(`[GeminiService] Model ${currentModel} encountered error:`, message);
-
-        // Check if recoverable by moving to the next model in the fallback chain
-        const isRecoverable =
-          message.includes('404') ||
-          message.includes('NOT_FOUND') ||
-          message.includes('not found') ||
-          message.includes('no longer available') ||
-          message.includes('RESOURCE_EXHAUSTED') ||
-          message.includes('quota') ||
-          message.includes('429') ||
-          message.includes('500') ||
-          message.includes('502') ||
-          message.includes('503') ||
-          message.includes('overloaded');
-
-        if (!isRecoverable) {
+          // Break inner retry-without-thinking loop and move to next candidateModel
           break;
         }
-        // Otherwise try next model in candidateModels
       }
     }
 

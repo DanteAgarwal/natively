@@ -21,38 +21,31 @@ export const ACTIVE_GROQ_MODELS: GroqModelInfo[] = [
   {
     id: 'llama-3.1-8b-instant',
     name: 'Llama 3.1 8B Instant',
-    description: 'Ultra-Fast Lightweight Model (128k context, ~560 tok/s) ⚡',
+    description: 'Ultra-Fast Lightweight Model with high 20k TPM limit (~560 tok/s) 🚀',
     contextWindow: 131072,
     badge: 'Speed',
   },
   {
-    id: 'deepseek-r1-distill-qwen-32b',
-    name: 'DeepSeek R1 Distill Qwen 32B',
-    description: 'High-Speed Math & Logic Reasoning (128k context, ~320 tok/s) 🚀',
+    id: 'openai/gpt-oss-120b',
+    name: 'OpenAI GPT OSS 120B',
+    description: 'Flagship 120B Reasoning & Architecture Model on Groq LPU 🧠',
     contextWindow: 131072,
     badge: 'Reasoning',
   },
   {
-    id: 'qwen-2.5-coder-32b',
-    name: 'Qwen 2.5 Coder 32B',
-    description: 'Specialized Code Synthesis, Architecture & Debugging (32k context, ~350 tok/s) 💻',
-    contextWindow: 32768,
-    badge: 'Coding',
-  },
-  {
-    id: 'gemma2-9b-it',
-    name: 'Gemma 2 9B IT',
-    description: 'Google Gemma 2 on Groq Hardware (8k context) 🌐',
-    contextWindow: 8192,
+    id: 'openai/gpt-oss-20b',
+    name: 'OpenAI GPT OSS 20B',
+    description: 'Ultra-Fast 20B Open-Weights Reasoning Model ⚡',
+    contextWindow: 131072,
+    badge: 'Fast Reasoning',
   },
 ];
 
 const DEFAULT_FALLBACK_CHAIN = [
   'llama-3.3-70b-versatile',
   'llama-3.1-8b-instant',
-  'deepseek-r1-distill-qwen-32b',
-  'qwen-2.5-coder-32b',
-  'gemma2-9b-it',
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
 ];
 
 export class GroqService {
@@ -77,7 +70,15 @@ export class GroqService {
     const config = configService.getConfig();
 
     let requestedModel = config.groqModel || 'llama-3.3-70b-versatile';
-    if (['llama-3.1-8b-instant', 'llama-3.2-11b-vision-preview', 'deepseek-r1-distill-llama-70b'].includes(requestedModel)) {
+    const obsoleteGroq = [
+      'gemma2-9b-it',
+      'deepseek-r1-distill-qwen-32b',
+      'qwen-2.5-coder-32b',
+      'llama-3.2-11b-vision-preview',
+      'mixtral-8x7b-32768',
+      'deepseek-r1-distill-llama-70b',
+    ];
+    if (obsoleteGroq.includes(requestedModel)) {
       requestedModel = 'llama-3.3-70b-versatile';
     }
     
@@ -93,8 +94,8 @@ export class GroqService {
       { role: 'system', content: systemInstruction }
     ];
 
-    // Prune history to last 12 messages to prevent exceeding Groq Free Tier TPM (Tokens Per Minute) limit
-    const prunedHistory = history.slice(-12);
+    // Prune history to last 10 messages to prevent exceeding Groq Free Tier TPM (Tokens Per Minute) limit
+    const prunedHistory = history.slice(-10);
     for (const msg of prunedHistory) {
       messages.push({
         role: msg.role === 'model' ? 'assistant' : 'user',
@@ -166,12 +167,15 @@ export class GroqService {
 
         // Check if recoverable by moving to the next model in the fallback chain
         const isRecoverable =
+          message.includes('400') ||
           message.includes('404') ||
           message.includes('not exist') ||
           message.includes('model_not_found') ||
           message.includes('decommissioned') ||
           message.includes('429') ||
           message.includes('rate_limit') ||
+          message.includes('tpm') ||
+          message.includes('tokens per minute') ||
           message.includes('500') ||
           message.includes('502') ||
           message.includes('503') ||
@@ -185,7 +189,7 @@ export class GroqService {
     }
 
     const finalMsg = lastError?.message || 'All Groq models failed';
-    if (finalMsg.includes('429')) {
+    if (finalMsg.includes('429') || finalMsg.includes('rate_limit') || finalMsg.includes('tokens per minute')) {
       throw new Error('Groq rate limit reached across available models. Please wait a moment or switch to Gemini.');
     }
     throw new Error(`Groq Error: ${finalMsg}`);
@@ -217,7 +221,7 @@ export class GroqService {
       }
 
       // Step 2: Fault-tolerant verification with active test models
-      const testModels = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'qwen-2.5-coder-32b'];
+      const testModels = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'openai/gpt-oss-120b'];
       let lastErrorMessage = '';
 
       for (const model of testModels) {

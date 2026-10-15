@@ -7,9 +7,8 @@ test('GroqService - Models verification', () => {
   const ids = ACTIVE_GROQ_MODELS.map(m => m.id);
   assert.ok(ids.includes('llama-3.3-70b-versatile'), 'Flagship model must be included');
   assert.ok(ids.includes('llama-3.1-8b-instant'), 'Fast 8B model must be included');
-  assert.ok(ids.includes('deepseek-r1-distill-qwen-32b'), 'DeepSeek model must be included');
-  assert.ok(ids.includes('qwen-2.5-coder-32b'), 'Qwen coder must be included');
-  assert.ok(ids.includes('gemma2-9b-it'), 'Gemma 2 model must be included');
+  assert.ok(ids.includes('openai/gpt-oss-120b'), 'OpenAI OSS 120B model must be included');
+  assert.ok(ids.includes('openai/gpt-oss-20b'), 'OpenAI OSS 20B model must be included');
 });
 
 test('GroqService - Rejects invalid key format on testApiKey', async () => {
