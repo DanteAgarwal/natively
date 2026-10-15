@@ -51,24 +51,11 @@ export class GeminiAdapter implements ProviderAdapter {
     }
   }
 
-  async invoke(params: InvocationParams): Promise<InvocationResult> {
-    const client = this.getClient();
-    const start = Date.now();
-
+  private buildContents(params: InvocationParams): any[] {
     const contents: any[] = [];
 
-    if (params.imageBase64) {
-      const cleanBase64 = params.imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
-      contents.push({
-        inlineData: {
-          mimeType: 'image/png',
-          data: cleanBase64,
-        },
-      });
-    }
-
     if (params.history && params.history.length > 0) {
-      for (const msg of params.history) {
+      for (const msg of params.history.slice(-12)) {
         contents.push({
           role: msg.role === 'model' ? 'model' : 'user',
           parts: [{ text: msg.text }],
@@ -76,8 +63,30 @@ export class GeminiAdapter implements ProviderAdapter {
       }
     }
 
-    contents.push(params.prompt);
+    const currentParts: any[] = [];
+    if (params.imageBase64) {
+      const cleanBase64 = params.imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+      let mimeType = 'image/png';
+      if (params.imageBase64.startsWith('data:image/jpeg') || params.imageBase64.startsWith('data:image/jpg')) {
+        mimeType = 'image/jpeg';
+      } else if (params.imageBase64.startsWith('data:image/webp')) {
+        mimeType = 'image/webp';
+      }
+      currentParts.push({
+        inlineData: {
+          mimeType,
+          data: cleanBase64,
+        },
+      });
+    }
 
+    currentParts.push({ text: params.prompt });
+    contents.push({ role: 'user', parts: currentParts });
+
+    return contents;
+  }
+
+  private buildGenConfig(params: InvocationParams, allowThinking: boolean = true): any {
     const appConfig = configService.getConfig();
     const effectiveSystem = params.systemInstruction || buildEffectiveSystemInstruction(appConfig);
     const genConfig: any = {};
@@ -87,12 +96,39 @@ export class GeminiAdapter implements ProviderAdapter {
     if (params.temperature !== undefined) {
       genConfig.temperature = params.temperature;
     }
+    if (allowThinking && (params.modelId.includes('3.8') || params.modelId.includes('3.7'))) {
+      genConfig.thinkingConfig = {
+        thinkingBudget: 1024,
+      };
+    }
+    return genConfig;
+  }
 
-    const response = await client.models.generateContent({
-      model: params.modelId,
-      contents,
-      config: genConfig,
-    });
+  async invoke(params: InvocationParams): Promise<InvocationResult> {
+    const client = this.getClient();
+    const start = Date.now();
+    const contents = this.buildContents(params);
+    let genConfig = this.buildGenConfig(params, true);
+
+    let response: any;
+    try {
+      response = await client.models.generateContent({
+        model: params.modelId,
+        contents,
+        config: genConfig,
+      });
+    } catch (err: any) {
+      if (genConfig.thinkingConfig && (err?.message?.includes('thinkingConfig') || err?.status === 400)) {
+        genConfig = this.buildGenConfig(params, false);
+        response = await client.models.generateContent({
+          model: params.modelId,
+          contents,
+          config: genConfig,
+        });
+      } else {
+        throw err;
+      }
+    }
 
     const totalDurationMs = Date.now() - start;
     const text = response.text || '';
@@ -114,43 +150,28 @@ export class GeminiAdapter implements ProviderAdapter {
     let ttftRecorded = false;
     let timeToFirstTokenMs: number | undefined;
 
-    const contents: any[] = [];
-    if (params.imageBase64) {
-      const cleanBase64 = params.imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
-      contents.push({
-        inlineData: {
-          mimeType: 'image/png',
-          data: cleanBase64,
-        },
-      });
-    }
+    const contents = this.buildContents(params);
+    let genConfig = this.buildGenConfig(params, true);
 
-    if (params.history && params.history.length > 0) {
-      for (const msg of params.history) {
-        contents.push({
-          role: msg.role === 'model' ? 'model' : 'user',
-          parts: [{ text: msg.text }],
+    let responseStream: any;
+    try {
+      responseStream = await client.models.generateContentStream({
+        model: params.modelId,
+        contents,
+        config: genConfig,
+      });
+    } catch (err: any) {
+      if (genConfig.thinkingConfig && (err?.message?.includes('thinkingConfig') || err?.status === 400)) {
+        genConfig = this.buildGenConfig(params, false);
+        responseStream = await client.models.generateContentStream({
+          model: params.modelId,
+          contents,
+          config: genConfig,
         });
+      } else {
+        throw err;
       }
     }
-
-    contents.push(params.prompt);
-
-    const appConfig = configService.getConfig();
-    const effectiveSystem = params.systemInstruction || buildEffectiveSystemInstruction(appConfig);
-    const genConfig: any = {};
-    if (effectiveSystem) {
-      genConfig.systemInstruction = effectiveSystem;
-    }
-    if (params.temperature !== undefined) {
-      genConfig.temperature = params.temperature;
-    }
-
-    const responseStream = await client.models.generateContentStream({
-      model: params.modelId,
-      contents,
-      config: genConfig,
-    });
 
     let fullText = '';
     for await (const chunk of responseStream) {

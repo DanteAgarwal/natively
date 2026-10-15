@@ -9,6 +9,38 @@
 import { NormalizedError } from './types';
 import { ObservabilityRedactor } from '../diagnostics';
 
+function extractCleanErrorMessage(raw: string): string {
+  if (!raw) return 'Unknown error occurred';
+
+  // Check if raw contains a JSON object
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      let innerMsg = parsed.error?.message || parsed.message;
+      if (typeof innerMsg === 'string') {
+        innerMsg = innerMsg.trim();
+        // Check if inner message is itself JSON-encoded string
+        if (innerMsg.startsWith('{')) {
+          try {
+            const doubleParsed = JSON.parse(innerMsg);
+            if (doubleParsed.error?.message) {
+              innerMsg = doubleParsed.error.message.trim();
+            }
+          } catch {}
+        }
+        return innerMsg;
+      }
+    } catch {}
+  }
+
+  // Strip prefixes like "got status: 503 Service Unavailable."
+  return raw
+    .replace(/^got status: \d+ [^.]+\.\s*/i, '')
+    .replace(/^[a-zA-Z]+Error:\s*/i, '')
+    .trim();
+}
+
 export function normalizeStandardError(error: any): NormalizedError {
   if (!error) {
     return {
@@ -19,8 +51,15 @@ export function normalizeStandardError(error: any): NormalizedError {
   }
 
   const rawMessage = error.message || String(error);
-  const status = error.status || error.statusCode || error.response?.status;
-  const message = ObservabilityRedactor.redactText(rawMessage);
+  let status = error.status || error.statusCode || error.response?.status || error.code;
+  if (!status || typeof status !== 'number') {
+    const statusMatch = rawMessage.match(/\b(400|401|403|404|408|429|500|502|503|504)\b/);
+    if (statusMatch) {
+      status = parseInt(statusMatch[1], 10);
+    }
+  }
+
+  const cleanMessage = ObservabilityRedactor.redactText(extractCleanErrorMessage(rawMessage));
 
   // Extract Retry-After if available (header or body message)
   let retryAfterMs: number | undefined;
@@ -54,7 +93,7 @@ export function normalizeStandardError(error: any): NormalizedError {
       statusCode: 429,
       retryAfterMs,
       isTransient: true,
-      message: `Rate limit or quota exceeded: ${message}`,
+      message: `Rate limit or quota exceeded: ${cleanMessage}`,
       rawError: error,
     };
   }
@@ -65,7 +104,7 @@ export function normalizeStandardError(error: any): NormalizedError {
       errorClass: 'AUTH_ERROR_401',
       statusCode: status || 401,
       isTransient: false,
-      message: `Authentication or permission failure: ${message}`,
+      message: `Authentication or permission failure: ${cleanMessage}`,
       rawError: error,
     };
   }
@@ -76,7 +115,7 @@ export function normalizeStandardError(error: any): NormalizedError {
       errorClass: 'NOT_FOUND_404',
       statusCode: 404,
       isTransient: false,
-      message: `Model not found or decommissioned: ${message}`,
+      message: `Model not found or decommissioned: ${cleanMessage}`,
       rawError: error,
     };
   }
@@ -87,7 +126,7 @@ export function normalizeStandardError(error: any): NormalizedError {
       errorClass: 'INVALID_REQUEST_400',
       statusCode: 400,
       isTransient: false,
-      message: `Invalid request payload or modality: ${message}`,
+      message: `Invalid request payload or modality: ${cleanMessage}`,
       rawError: error,
     };
   }
@@ -98,7 +137,7 @@ export function normalizeStandardError(error: any): NormalizedError {
       errorClass: 'TIMEOUT',
       statusCode: 408,
       isTransient: true,
-      message: `Request timed out: ${message}`,
+      message: `Request timed out: ${cleanMessage}`,
       rawError: error,
     };
   }
@@ -108,18 +147,21 @@ export function normalizeStandardError(error: any): NormalizedError {
     return {
       errorClass: 'NETWORK_ERROR',
       isTransient: true,
-      message: `Network connectivity error: ${message}`,
+      message: `Network connectivity error: ${cleanMessage}`,
       rawError: error,
     };
   }
 
   // 7. Server error (5xx)
-  if (status >= 500 && status < 600) {
+  if (
+    (status >= 500 && status < 600) ||
+    /503|500|502|504|service unavailable|internal server error|high demand|overloaded|spikes in demand/i.test(rawMessage)
+  ) {
     return {
       errorClass: 'SERVER_ERROR_5XX',
-      statusCode: status,
+      statusCode: status || 503,
       isTransient: true,
-      message: `Provider server error (${status}): ${message}`,
+      message: `Provider server error (${status || 503}): ${cleanMessage}`,
       rawError: error,
     };
   }
@@ -128,7 +170,7 @@ export function normalizeStandardError(error: any): NormalizedError {
     errorClass: 'UNKNOWN',
     statusCode: status,
     isTransient: false,
-    message,
+    message: cleanMessage,
     rawError: error,
   };
 }
