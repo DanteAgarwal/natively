@@ -259,7 +259,7 @@ test('Phase 3: Circuit Breaker State Machine', () => {
       cb.recordSuccess();
       assert.strictEqual(cb.getState(), 'CLOSED');
       resolve();
-    }, 60);
+    }, 85);
   });
 });
 

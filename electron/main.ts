@@ -346,31 +346,74 @@ function registerGlobalHotkeys(): void {
     }
   };
 
-  // Toggle visibility: Ctrl+\ (or Cmd+\ on macOS)
-  safeRegister('CommandOrControl+\\', toggleWindowVisibility, 'Toggle Visibility');
+  // 1. Toggle visibility: Ctrl+\ (or Cmd+\ on macOS)
+  safeRegister('CommandOrControl+\\', toggleWindowVisibility, 'Toggle Visibility (Ctrl+\\)');
 
-  // Capture & analyze: Ctrl+Shift+S
-  safeRegister('CommandOrControl+Shift+S', triggerCapture, 'Screen Capture');
+  // 2. Screen Capture: Alt+S (Primary) & Ctrl+Shift+S (Secondary)
+  safeRegister('Alt+S', triggerCapture, 'Screen Capture (Alt+S)');
+  safeRegister('CommandOrControl+Shift+S', triggerCapture, 'Screen Capture (Ctrl+Shift+S)');
 
-  // Push-to-Listen (Voice STT): Ctrl+Shift+L and F9
-  safeRegister('CommandOrControl+Shift+L', triggerListen, 'Push-to-Listen (Ctrl+Shift+L)');
-  safeRegister('F9', triggerListen, 'Push-to-Listen (F9)');
+  // 3. Voice STT Push-to-Talk: F9 (Primary) & Alt+L / Ctrl+Shift+L (Secondary)
+  safeRegister('F9', triggerListen, 'Voice STT (F9)');
+  safeRegister('Alt+L', triggerListen, 'Voice STT (Alt+L)');
+  safeRegister('CommandOrControl+Shift+L', triggerListen, 'Voice STT (Ctrl+Shift+L)');
 
-  // Toggle click-through: Ctrl+Shift+X
-  safeRegister('CommandOrControl+Shift+X', () => toggleClickThrough(), 'Click-Through Toggle');
-
-  // Stealth Panic Hide: Ctrl+Shift+H
-  safeRegister('CommandOrControl+Shift+H', () => panicHide(), 'Panic Hide');
-
-  // Toggle Meeting Audio capture: Ctrl+Shift+M
-  safeRegister('CommandOrControl+Shift+M', () => {
+  // 4. Meeting Audio Toggle: Alt+M & Ctrl+Shift+M
+  const sendMeetingHotkey = () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('ghost:trigger-meeting-hotkey');
     }
-  }, 'Meeting Audio Toggle');
+  };
+  safeRegister('Alt+M', sendMeetingHotkey, 'Meeting Audio (Alt+M)');
+  safeRegister('CommandOrControl+Shift+M', sendMeetingHotkey, 'Meeting Audio (Ctrl+Shift+M)');
 
-  // Toggle Overlay Size (Big vs Normal): Ctrl+Shift+B
+  // 5. Stealth Panic Hide: Ctrl+Shift+H
+  safeRegister('CommandOrControl+Shift+H', () => panicHide(), 'Panic Hide (Ctrl+Shift+H)');
+
+  // 6. Click-Through Toggle: Ctrl+Shift+X
+  safeRegister('CommandOrControl+Shift+X', () => toggleClickThrough(), 'Click-Through Toggle');
+
+  // 7. Toggle Overlay Size: Ctrl+Shift+B
   safeRegister('CommandOrControl+Shift+B', () => toggleWindowSize(), 'Window Size Toggle');
+
+  // 8. Meeting Intelligence Global Actions (Works inside Zoom / Meet / Code editors)
+  const sendWhatToAnswer = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ghost:trigger-what-to-answer');
+    }
+  };
+  safeRegister('Alt+W', sendWhatToAnswer, 'What To Answer (Alt+W)');
+  safeRegister('CommandOrControl+Shift+W', sendWhatToAnswer, 'What To Answer (Ctrl+Shift+W)');
+
+  const sendRecap = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ghost:trigger-recap');
+    }
+  };
+  safeRegister('Alt+R', sendRecap, 'Recap Meeting (Alt+R)');
+  safeRegister('CommandOrControl+Shift+R', sendRecap, 'Recap Meeting (Ctrl+Shift+R)');
+
+  const sendFollowUp = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ghost:trigger-follow-up');
+    }
+  };
+  safeRegister('Alt+F', sendFollowUp, 'Follow-Up Questions (Alt+F)');
+  safeRegister('CommandOrControl+Shift+F', sendFollowUp, 'Follow-Up Questions (Ctrl+Shift+F)');
+
+  const sendShorten = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ghost:trigger-shorten');
+    }
+  };
+  safeRegister('Alt+K', sendShorten, 'Shorten Response (Alt+K)');
+  safeRegister('CommandOrControl+Shift+K', sendShorten, 'Shorten Response (Ctrl+Shift+K)');
+
+  safeRegister('CommandOrControl+Shift+Y', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ghost:trigger-copy-response');
+    }
+  }, 'Copy Last Response Action');
 }
 
 let currentStreamAbort = false;

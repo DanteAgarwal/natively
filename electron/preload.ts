@@ -53,6 +53,11 @@ export interface GhostAPI {
   onTriggerCapture: (callback: () => void) => () => void;
   onTriggerListen: (callback: () => void) => () => void;
   onTriggerMeeting: (callback: () => void) => () => void;
+  onTriggerWhatToAnswer?: (callback: () => void) => () => void;
+  onTriggerRecap?: (callback: () => void) => () => void;
+  onTriggerFollowUp?: (callback: () => void) => () => void;
+  onTriggerShorten?: (callback: () => void) => () => void;
+  onTriggerCopyResponse?: (callback: () => void) => () => void;
   onWindowSizeToggled: (callback: (isExpanded: boolean) => void) => () => void;
   onClickThroughToggled: (callback: (enabled: boolean) => void) => () => void;
   onPanicHide: (callback: () => void) => () => void;
@@ -138,6 +143,36 @@ const api: GhostAPI = {
     const handler = () => callback();
     ipcRenderer.on('ghost:trigger-meeting-hotkey', handler);
     return () => ipcRenderer.removeListener('ghost:trigger-meeting-hotkey', handler);
+  },
+
+  onTriggerWhatToAnswer: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('ghost:trigger-what-to-answer', handler);
+    return () => ipcRenderer.removeListener('ghost:trigger-what-to-answer', handler);
+  },
+
+  onTriggerRecap: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('ghost:trigger-recap', handler);
+    return () => ipcRenderer.removeListener('ghost:trigger-recap', handler);
+  },
+
+  onTriggerFollowUp: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('ghost:trigger-follow-up', handler);
+    return () => ipcRenderer.removeListener('ghost:trigger-follow-up', handler);
+  },
+
+  onTriggerShorten: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('ghost:trigger-shorten', handler);
+    return () => ipcRenderer.removeListener('ghost:trigger-shorten', handler);
+  },
+
+  onTriggerCopyResponse: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('ghost:trigger-copy-response', handler);
+    return () => ipcRenderer.removeListener('ghost:trigger-copy-response', handler);
   },
 
   onWindowSizeToggled: (callback) => {

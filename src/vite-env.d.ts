@@ -45,6 +45,11 @@ export interface GhostAPI {
   onTriggerCapture: (callback: () => void) => () => void;
   onTriggerListen: (callback: () => void) => () => void;
   onTriggerMeeting?: (callback: () => void) => () => void;
+  onTriggerWhatToAnswer?: (callback: () => void) => () => void;
+  onTriggerRecap?: (callback: () => void) => () => void;
+  onTriggerFollowUp?: (callback: () => void) => () => void;
+  onTriggerShorten?: (callback: () => void) => () => void;
+  onTriggerCopyResponse?: (callback: () => void) => () => void;
   onWindowSizeToggled?: (callback: (isExpanded: boolean) => void) => () => void;
   onClickThroughToggled: (callback: (enabled: boolean) => void) => () => void;
   onPanicHide: (callback: () => void) => () => void;

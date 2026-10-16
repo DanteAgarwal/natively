@@ -8,6 +8,7 @@ import { CaptureStudio } from './components/CaptureStudio';
 import { EmptyState } from './components/EmptyState';
 import { MessageBubble } from './components/MessageBubble';
 import { HotkeyCheatSheet } from './components/HotkeyCheatSheet';
+import { ShortcutActionId } from './types/shortcuts';
 import { SettingsModal } from './components/SettingsModal';
 import { InterviewContextModal } from './components/InterviewContextModal';
 import { UserProfileContext, DEFAULT_USER_PROFILE_CONTEXT } from './types/profile';
@@ -88,6 +89,8 @@ const App: React.FC = () => {
   const toggleWindowSizeRef = useRef<() => void>(() => {});
   const copyLastResponseRef = useRef<() => void>(() => {});
   const stopStreamRef = useRef<() => void>(() => {});
+  const executeShortcutActionRef = useRef<(actionId: ShortcutActionId) => void>(() => {});
+  const lastShortcutTimeRef = useRef<Record<string, number>>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -224,11 +227,11 @@ const App: React.FC = () => {
     });
 
     const unsubHotkeyCapture = window.ghostAPI.onTriggerCapture(() => {
-      handleCaptureAndAnalyze();
+      executeShortcutActionRef.current('capture_screen');
     });
 
     const unsubHotkeyListen = window.ghostAPI.onTriggerListen?.(() => {
-      toggleListeningRef.current();
+      executeShortcutActionRef.current('mic_dictate');
     });
 
     const unsubClickThrough = window.ghostAPI.onClickThroughToggled((active) => {
@@ -236,10 +239,7 @@ const App: React.FC = () => {
     });
 
     const unsubPanic = window.ghostAPI.onPanicHide(() => {
-      setIsStreaming(false);
-      setCaptureStatus('idle');
-      abortRef.current = true;
-      window.ghostAPI?.stopStream();
+      executeShortcutActionRef.current('panic_hide');
     });
 
     const unsubMeetingTranscript = window.ghostAPI.onMeetingTranscript?.((item) => {
@@ -258,7 +258,27 @@ const App: React.FC = () => {
     });
 
     const unsubHotkeyMeeting = window.ghostAPI.onTriggerMeeting?.(() => {
-      toggleMeetingRef.current();
+      executeShortcutActionRef.current('sync_meeting');
+    });
+
+    const unsubWhatToAnswer = window.ghostAPI.onTriggerWhatToAnswer?.(() => {
+      executeShortcutActionRef.current('what_to_answer');
+    });
+
+    const unsubRecap = window.ghostAPI.onTriggerRecap?.(() => {
+      executeShortcutActionRef.current('recap_meeting');
+    });
+
+    const unsubFollowUp = window.ghostAPI.onTriggerFollowUp?.(() => {
+      executeShortcutActionRef.current('follow_up');
+    });
+
+    const unsubShorten = window.ghostAPI.onTriggerShorten?.(() => {
+      executeShortcutActionRef.current('shorten_response');
+    });
+
+    const unsubCopyResponse = window.ghostAPI.onTriggerCopyResponse?.(() => {
+      copyLastResponseRef.current();
     });
 
     const unsubWindowSize = window.ghostAPI.onWindowSizeToggled?.((expanded) => {
@@ -277,11 +297,16 @@ const App: React.FC = () => {
       unsubMeetingTranscript?.();
       unsubMeetingStatus?.();
       unsubHotkeyMeeting?.();
+      unsubWhatToAnswer?.();
+      unsubRecap?.();
+      unsubFollowUp?.();
+      unsubShorten?.();
+      unsubCopyResponse?.();
       unsubWindowSize?.();
     };
   }, []);
 
-  // Universal Keyboard Shortcut Dispatcher
+  // Universal Keyboard Shortcut Dispatcher (Aligned strictly with pruned 10-shortcut catalog)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement;
@@ -290,39 +315,7 @@ const App: React.FC = () => {
       // 1. Escape: Hierarchical Smart Dismiss
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (isStreaming) {
-          stopStreamRef.current();
-          setQuickToast('Streaming cancelled ⏹️');
-          setTimeout(() => setQuickToast(null), 1500);
-          return;
-        }
-        if (isListening) {
-          stopListening();
-          return;
-        }
-        if (showShortcuts) {
-          setShowShortcuts(false);
-          return;
-        }
-        if (isSettingsOpen) {
-          setIsSettingsOpen(false);
-          return;
-        }
-        if (showTranscriptDrawer) {
-          setShowTranscriptDrawer(false);
-          return;
-        }
-        if (isInputFocused && inputPrompt) {
-          setInputPrompt('');
-          return;
-        }
-        if (isInputFocused) {
-          (activeEl as HTMLElement).blur();
-          return;
-        }
-        if (window.ghostAPI) {
-          window.ghostAPI.minimizeWindow();
-        }
+        executeShortcutActionRef.current('dismiss_cancel');
         return;
       }
 
@@ -333,144 +326,66 @@ const App: React.FC = () => {
         return;
       }
 
-      // 3. Focus Prompt Input (/ when not typing, or Alt+/, or Ctrl+L)
-      if (((e.key === '/' && !isInputFocused) || (e.altKey && e.key === '/') || (e.ctrlKey && e.key.toLowerCase() === 'l')) && !e.shiftKey) {
+      // 3. Screen Capture (Alt+S or Ctrl+Shift+S)
+      if ((e.altKey && e.key.toLowerCase() === 's') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 's')) {
         e.preventDefault();
-        inputRef.current?.focus();
+        executeShortcutActionRef.current('capture_screen');
         return;
       }
 
       // 4. Voice Dictation (F9 or Alt+L or Ctrl+Shift+L)
       if (e.key === 'F9' || (e.altKey && e.key.toLowerCase() === 'l') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'l')) {
         e.preventDefault();
-        toggleListeningRef.current();
+        executeShortcutActionRef.current('mic_dictate');
         return;
       }
 
-      // 5. Capture & Analyze Screen (Alt+S or Ctrl+Shift+S)
-      if ((e.altKey && e.key.toLowerCase() === 's') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 's')) {
+      // 5. What to answer? (Alt+W or Ctrl+Shift+W)
+      if ((e.altKey && e.key.toLowerCase() === 'w') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'w')) {
         e.preventDefault();
-        captureAndAnalyzeRef.current();
+        executeShortcutActionRef.current('what_to_answer');
         return;
       }
 
-      // 6. Meeting Audio Sync (Alt+M or Ctrl+Shift+M)
+      // 6. Recap Meeting (Alt+R or Ctrl+Shift+R)
+      if ((e.altKey && e.key.toLowerCase() === 'r') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'r')) {
+        e.preventDefault();
+        executeShortcutActionRef.current('recap_meeting');
+        return;
+      }
+
+      // 7. Suggest Follow-Up Questions (Alt+F or Ctrl+Shift+F)
+      if ((e.altKey && e.key.toLowerCase() === 'f') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'f')) {
+        e.preventDefault();
+        executeShortcutActionRef.current('follow_up');
+        return;
+      }
+
+      // 8. Shorten Response (Alt+K or Ctrl+Shift+K)
+      if ((e.altKey && e.key.toLowerCase() === 'k') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'k')) {
+        e.preventDefault();
+        executeShortcutActionRef.current('shorten_response');
+        return;
+      }
+
+      // 9. Meeting Audio WASAPI Sync (Alt+M or Ctrl+Shift+M)
       if ((e.altKey && e.key.toLowerCase() === 'm') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'm')) {
         e.preventDefault();
-        toggleMeetingRef.current();
+        executeShortcutActionRef.current('sync_meeting');
         return;
       }
 
-      // 7. Toggle Meeting Transcripts Drawer (Alt+T or Ctrl+Shift+T)
-      if ((e.altKey && e.key.toLowerCase() === 't') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 't')) {
+      // 10. Stealth Panic Hide (Ctrl+Shift+H)
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'h') {
         e.preventDefault();
-        setShowTranscriptDrawer((prev) => !prev);
-        return;
-      }
-
-      // 8. Meeting Action Pills (Alt+W, Alt+R, Alt+F, Alt+K)
-      if (e.altKey && e.key.toLowerCase() === 'w') {
-        e.preventDefault();
-        whatToAnswerRef.current();
-        return;
-      }
-      if (e.altKey && e.key.toLowerCase() === 'r') {
-        e.preventDefault();
-        recapRef.current();
-        return;
-      }
-      if (e.altKey && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        followUpRef.current();
-        return;
-      }
-      if (e.altKey && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        shortenRef.current();
-        return;
-      }
-
-      // 9. Clear Chat (Ctrl+K or Ctrl+Shift+C)
-      if ((e.ctrlKey && e.key.toLowerCase() === 'k' && !e.altKey) || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'c')) {
-        e.preventDefault();
-        clearMessagesRef.current();
-        setQuickToast('Conversation cleared 🗑️');
-        setTimeout(() => setQuickToast(null), 1500);
-        return;
-      }
-
-      // 10. Copy Last Response (Alt+C or Ctrl+Shift+Y)
-      if ((e.altKey && e.key.toLowerCase() === 'c') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'y')) {
-        e.preventDefault();
-        copyLastResponseRef.current();
-        return;
-      }
-
-      // 11. Cycle AI Provider (Alt+P or Ctrl+Shift+P)
-      if ((e.altKey && e.key.toLowerCase() === 'p') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'p')) {
-        e.preventDefault();
-        cycleProviderRef.current();
-        return;
-      }
-
-      // 12. Toggle Overlay Size (Big vs Standard) (Alt+B or Ctrl+Shift+B)
-      if ((e.altKey && e.key.toLowerCase() === 'b') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'b')) {
-        e.preventDefault();
-        toggleWindowSizeRef.current();
-        return;
-      }
-
-      // 13. Settings (Ctrl+, or Alt+,)
-      if ((e.ctrlKey && e.key === ',') || (e.altKey && e.key === ',')) {
-        e.preventDefault();
-        setIsSettingsOpen((prev) => !prev);
-        return;
-      }
-
-      // 14. Export Session (Alt+E or Ctrl+Shift+E)
-      if ((e.altKey && e.key.toLowerCase() === 'e') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'e')) {
-        e.preventDefault();
-        exportSessionRef.current();
-        return;
-      }
-
-      // 15. Toggle Click-Through (Alt+X or Ctrl+Shift+X)
-      if ((e.altKey && e.key.toLowerCase() === 'x') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'x')) {
-        e.preventDefault();
-        handleToggleClickThrough();
-        return;
-      }
-
-      // 16. Toggle Ghost Shield (Alt+G or Ctrl+Shift+G)
-      if ((e.altKey && e.key.toLowerCase() === 'g') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'g')) {
-        e.preventDefault();
-        handleToggleGhostMode();
-        return;
-      }
-
-      // 17. Toggle Interview Persona & JD Context Modal (Alt+U or Alt+J)
-      if (e.altKey && (e.key.toLowerCase() === 'u' || e.key.toLowerCase() === 'j')) {
-        e.preventDefault();
-        setIsContextModalOpen((prev) => !prev);
-        return;
-      }
-
-      // 18. Tab Switching (Alt+1 for Chat, Alt+2 for Screen AI)
-      if (e.altKey && e.key === '1') {
-        e.preventDefault();
-        setActiveTab('chat');
-        return;
-      }
-      if (e.altKey && e.key === '2') {
-        e.preventDefault();
-        setActiveTab('capture');
+        executeShortcutActionRef.current('panic_hide');
         return;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSettingsOpen, isContextModalOpen, showShortcuts, isListening, isStreaming, showTranscriptDrawer, inputPrompt]);
+  }, []);
 
   // Auto-scroll when messages update
   useEffect(() => {
@@ -837,6 +752,7 @@ const App: React.FC = () => {
     toggleWindowSizeRef.current = handleToggleWindowSize;
     copyLastResponseRef.current = handleCopyLastResponse;
     stopStreamRef.current = handleStopStream;
+    executeShortcutActionRef.current = handleExecuteShortcutAction;
   });
 
   // Capture screen & analyze with Vision AI
@@ -964,6 +880,94 @@ const App: React.FC = () => {
     setTimeout(() => setQuickToast(null), 2500);
   };
 
+  // Smart Hierarchical Dismiss (Esc)
+  const handleSmartDismiss = () => {
+    if (isStreaming) {
+      handleStopStream();
+      setQuickToast('Streaming cancelled ⏹️');
+      setTimeout(() => setQuickToast(null), 1500);
+      return;
+    }
+    if (isListening) {
+      stopListening();
+      return;
+    }
+    if (showShortcuts) {
+      setShowShortcuts(false);
+      return;
+    }
+    if (isSettingsOpen) {
+      setIsSettingsOpen(false);
+      return;
+    }
+    if (showTranscriptDrawer) {
+      setShowTranscriptDrawer(false);
+      return;
+    }
+    const activeEl = document.activeElement;
+    const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+    if (isInputFocused && inputPrompt) {
+      setInputPrompt('');
+      return;
+    }
+    if (isInputFocused) {
+      (activeEl as HTMLElement).blur();
+      return;
+    }
+    if (window.ghostAPI) {
+      window.ghostAPI.minimizeWindow();
+    }
+  };
+
+  // Unified Shortcut Action Dispatcher (Debounced against duplicate OS & window keystrokes)
+  const handleExecuteShortcutAction = (actionId: ShortcutActionId) => {
+    const now = Date.now();
+    if (now - (lastShortcutTimeRef.current[actionId] || 0) < 350) {
+      return; // Ignore duplicate execution within 350ms
+    }
+    lastShortcutTimeRef.current[actionId] = now;
+
+    switch (actionId) {
+      case 'capture_screen':
+        handleCaptureAndAnalyze();
+        break;
+      case 'mic_dictate':
+        toggleListening();
+        break;
+      case 'what_to_answer':
+        handleWhatToAnswer();
+        break;
+      case 'recap_meeting':
+        handleRecapMeeting();
+        break;
+      case 'follow_up':
+        handleFollowUp();
+        break;
+      case 'shorten_response':
+        handleShorten();
+        break;
+      case 'sync_meeting':
+        toggleMeetingAudio();
+        break;
+      case 'toggle_visibility':
+        if (window.ghostAPI) {
+          window.ghostAPI.toggleGhostMode();
+        }
+        break;
+      case 'panic_hide':
+        setIsStreaming(false);
+        setCaptureStatus('idle');
+        abortRef.current = true;
+        window.ghostAPI?.stopStream();
+        setQuickToast('Stealth Panic: Muted & Hidden 🚨');
+        setTimeout(() => setQuickToast(null), 2000);
+        break;
+      case 'dismiss_cancel':
+        handleSmartDismiss();
+        break;
+    }
+  };
+
   const hasApiKey =
     config.provider === 'gemini'
       ? !!config.geminiApiKey?.trim()
@@ -1025,8 +1029,9 @@ const App: React.FC = () => {
 
         {/* Global Keyboard Shortcuts Cheatsheet Modal */}
         <HotkeyCheatSheet
-          show={showShortcuts && !isCollapsed}
+          show={showShortcuts}
           onClose={() => setShowShortcuts(false)}
+          onExecuteAction={handleExecuteShortcutAction}
         />
 
         {/* Main Content Workspace (Hidden when Collapsed) */}
@@ -1068,6 +1073,8 @@ const App: React.FC = () => {
                     <EmptyState
                       onCapture={() => setActiveTab('capture')}
                       onOpenSettings={() => setIsSettingsOpen(true)}
+                      onToggleMeetingAudio={toggleMeetingAudio}
+                      onOpenContextModal={() => setIsContextModalOpen(true)}
                       hasApiKey={hasApiKey}
                       provider={config.provider}
                     />
