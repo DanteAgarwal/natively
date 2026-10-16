@@ -27,6 +27,18 @@ try {
   // Ignored in packaged builds
 }
 
+// ─────────────────────────────────────────────────────────────
+// Process-Level Crash Guards
+// ─────────────────────────────────────────────────────────────
+process.on('uncaughtException', (error) => {
+  console.error('[Ghost Copilot] Uncaught exception:', error);
+  // Keep running — the overlay should never crash silently
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Ghost Copilot] Unhandled promise rejection:', reason);
+});
+
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isGhostModeActive: boolean = true;
@@ -317,55 +329,48 @@ function toggleWindowSize(): boolean {
 }
 
 function registerGlobalHotkeys(): void {
-  globalShortcut.unregisterAll();
+  try {
+    globalShortcut.unregisterAll();
+  } catch (err) {
+    console.warn('[Hotkeys] Failed to unregister existing shortcuts:', err);
+  }
+
+  const safeRegister = (accelerator: string, callback: () => void, label?: string): void => {
+    try {
+      globalShortcut.register(accelerator, callback);
+      if (!globalShortcut.isRegistered(accelerator)) {
+        console.warn(`[Hotkeys] Failed to register ${label || accelerator}: already in use by another application.`);
+      }
+    } catch (err) {
+      console.warn(`[Hotkeys] Failed to register ${label || accelerator}:`, err);
+    }
+  };
 
   // Toggle visibility: Ctrl+\ (or Cmd+\ on macOS)
-  globalShortcut.register('CommandOrControl+\\', toggleWindowVisibility);
+  safeRegister('CommandOrControl+\\', toggleWindowVisibility, 'Toggle Visibility');
 
   // Capture & analyze: Ctrl+Shift+S
-  globalShortcut.register('CommandOrControl+Shift+S', triggerCapture);
+  safeRegister('CommandOrControl+Shift+S', triggerCapture, 'Screen Capture');
 
   // Push-to-Listen (Voice STT): Ctrl+Shift+L and F9
-  try {
-    globalShortcut.register('CommandOrControl+Shift+L', triggerListen);
-  } catch (err) {
-    console.warn('Failed to register Ctrl+Shift+L hotkey:', err);
-  }
-  try {
-    globalShortcut.register('F9', triggerListen);
-  } catch (err) {
-    console.warn('Failed to register F9 hotkey:', err);
-  }
+  safeRegister('CommandOrControl+Shift+L', triggerListen, 'Push-to-Listen (Ctrl+Shift+L)');
+  safeRegister('F9', triggerListen, 'Push-to-Listen (F9)');
 
   // Toggle click-through: Ctrl+Shift+X
-  globalShortcut.register('CommandOrControl+Shift+X', () => {
-    toggleClickThrough();
-  });
+  safeRegister('CommandOrControl+Shift+X', () => toggleClickThrough(), 'Click-Through Toggle');
 
   // Stealth Panic Hide: Ctrl+Shift+H
-  globalShortcut.register('CommandOrControl+Shift+H', () => {
-    panicHide();
-  });
+  safeRegister('CommandOrControl+Shift+H', () => panicHide(), 'Panic Hide');
 
   // Toggle Meeting Audio capture: Ctrl+Shift+M
-  try {
-    globalShortcut.register('CommandOrControl+Shift+M', () => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('ghost:trigger-meeting-hotkey');
-      }
-    });
-  } catch (err) {
-    console.warn('Failed to register Ctrl+Shift+M hotkey:', err);
-  }
+  safeRegister('CommandOrControl+Shift+M', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ghost:trigger-meeting-hotkey');
+    }
+  }, 'Meeting Audio Toggle');
 
   // Toggle Overlay Size (Big vs Normal): Ctrl+Shift+B
-  try {
-    globalShortcut.register('CommandOrControl+Shift+B', () => {
-      toggleWindowSize();
-    });
-  } catch (err) {
-    console.warn('Failed to register Ctrl+Shift+B hotkey:', err);
-  }
+  safeRegister('CommandOrControl+Shift+B', () => toggleWindowSize(), 'Window Size Toggle');
 }
 
 let currentStreamAbort = false;
@@ -379,19 +384,35 @@ async function streamAiResponse(params: {
   history?: ChatMessage[];
   onChunk: (chunk: string) => void;
 }): Promise<string> {
-  const config = configService.getConfig();
+  let config: ReturnType<typeof configService.getConfig>;
+  try {
+    config = configService.getConfig();
+  } catch (configErr: any) {
+    throw new Error(`Failed to load configuration: ${configErr?.message || 'Unknown error'}. Please check Settings.`);
+  }
+
   const primaryProvider = (config.provider || 'gemini') as ProviderId;
-  const preferences = modelRegistryStore.getPreferences();
+  let preferences;
+  try {
+    preferences = modelRegistryStore.getPreferences();
+  } catch {
+    preferences = { billingMode: 'FREE_ONLY' as const, privacyMode: 'STANDARD' as const, hardCaps: { maxFallbackAttempts: 2 } };
+  }
 
   // 1. Resolve request intent, modality constraints & task profile (PRD §6.3, §8.1)
-  const routingRequest = capabilityResolver.resolveRequest({
-    prompt: params.prompt,
-    imageBase64: params.imageBase64,
-    billingMode: preferences.billingMode,
-    privacyMode: preferences.privacyMode,
-    preferredProviderId: primaryProvider,
-    preferredModelId: config.model,
-  });
+  let routingRequest;
+  try {
+    routingRequest = capabilityResolver.resolveRequest({
+      prompt: params.prompt,
+      imageBase64: params.imageBase64,
+      billingMode: preferences.billingMode,
+      privacyMode: preferences.privacyMode,
+      preferredProviderId: primaryProvider,
+      preferredModelId: config.model,
+    });
+  } catch (resolveErr: any) {
+    throw new Error(`Failed to resolve AI routing: ${resolveErr?.message || 'Unknown error'}`);
+  }
 
   // 2. Dispatch via FallbackOrchestrator with circuit breaking & quota tracking (PRD §6.5)
   const result = await fallbackOrchestrator.execute(
@@ -540,47 +561,94 @@ function setupIpcHandlers(): void {
   });
 
   // ── 2.9 Real-Time Meeting & System Audio (Rust WASAPI / ScreenCaptureKit) ──
-  nativeAudioService.onTranscript((item) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('ghost:meeting-transcript', item);
-    }
-  });
+  try {
+    nativeAudioService.onTranscript((item) => {
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('ghost:meeting-transcript', item);
+        }
+      } catch (err) {
+        console.warn('[NativeAudio] Failed to send transcript to renderer:', err);
+      }
+    });
 
-  nativeAudioService.onStatus((status) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('ghost:meeting-status', status);
-    }
-  });
+    nativeAudioService.onStatus((status) => {
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('ghost:meeting-status', status);
+        }
+      } catch (err) {
+        console.warn('[NativeAudio] Failed to send status to renderer:', err);
+      }
+    });
+  } catch (err) {
+    console.warn('[NativeAudio] Failed to register audio event listeners:', err);
+  }
 
   ipcMain.handle('ghost:start-meeting-audio', (_event, { deviceId }: { deviceId?: string } = {}) => {
-    const cleanDeviceId = (deviceId && deviceId !== 'default' && deviceId.trim()) ? deviceId.trim() : undefined;
-    return nativeAudioService.startSystemCapture(cleanDeviceId);
+    try {
+      const cleanDeviceId = (deviceId && deviceId !== 'default' && deviceId.trim()) ? deviceId.trim() : undefined;
+      return nativeAudioService.startSystemCapture(cleanDeviceId);
+    } catch (err: any) {
+      console.error('[IPC] start-meeting-audio error:', err);
+      return { success: false, error: err?.message || 'Failed to start meeting audio' };
+    }
   });
 
   ipcMain.handle('ghost:stop-meeting-audio', () => {
-    return nativeAudioService.stopSystemCapture();
+    try {
+      return nativeAudioService.stopSystemCapture();
+    } catch (err: any) {
+      console.error('[IPC] stop-meeting-audio error:', err);
+      return { success: false, error: err?.message || 'Failed to stop meeting audio' };
+    }
   });
 
   ipcMain.handle('ghost:get-audio-devices', () => {
-    return nativeAudioService.getAudioDevices();
+    try {
+      return nativeAudioService.getAudioDevices();
+    } catch (err: any) {
+      console.error('[IPC] get-audio-devices error:', err);
+      return { inputs: [], outputs: [] };
+    }
   });
 
   ipcMain.handle('ghost:get-rolling-transcript', () => {
-    return nativeAudioService.getRollingTranscript();
+    try {
+      return nativeAudioService.getRollingTranscript();
+    } catch (err: any) {
+      console.error('[IPC] get-rolling-transcript error:', err);
+      return [];
+    }
   });
 
   ipcMain.handle('ghost:clear-rolling-transcript', () => {
-    nativeAudioService.clearTranscript();
-    return true;
+    try {
+      nativeAudioService.clearTranscript();
+      return true;
+    } catch (err: any) {
+      console.error('[IPC] clear-rolling-transcript error:', err);
+      return false;
+    }
   });
 
   // ── 3. Settings & Config ──
   ipcMain.handle('ghost:get-config', () => {
-    return configService.getConfig();
+    try {
+      return configService.getConfig();
+    } catch (err: any) {
+      console.error('[IPC] get-config error:', err);
+      return {};
+    }
   });
 
   ipcMain.handle('ghost:save-config', (_event, newConfig) => {
-    return configService.setConfig(newConfig);
+    try {
+      return configService.setConfig(newConfig);
+    } catch (err: any) {
+      console.error('[IPC] save-config error:', err);
+      return { error: err?.message || 'Failed to save config' };
+    }
   });
 
   ipcMain.handle('ghost:test-api-key', async (_event, payload: string | { apiKey: string; provider?: 'gemini' | 'groq' | 'openrouter' | 'router'; baseUrl?: string; model?: string }) => {
@@ -670,22 +738,42 @@ function setupIpcHandlers(): void {
 
   // ── 8. Model Registry & Intelligent Router (PRD §6.8, §6.9) ──
   ipcMain.handle('ghost:get-models', () => {
-    return modelRegistry.getAll();
+    try {
+      return modelRegistry.getAll();
+    } catch (err: any) {
+      console.error('[IPC] get-models error:', err);
+      return [];
+    }
   });
 
   ipcMain.handle('ghost:get-diagnostics', () => {
-    return {
-      metrics: diagnostics.getMetrics(),
-      recentTraces: diagnostics.getTraces(50),
-    };
+    try {
+      return {
+        metrics: diagnostics.getMetrics(),
+        recentTraces: diagnostics.getTraces(50),
+      };
+    } catch (err: any) {
+      console.error('[IPC] get-diagnostics error:', err);
+      return { metrics: {}, recentTraces: [] };
+    }
   });
 
   ipcMain.handle('ghost:get-quotas', () => {
-    return quotaTracker.getAllSnapshots();
+    try {
+      return quotaTracker.getAllSnapshots();
+    } catch (err: any) {
+      console.error('[IPC] get-quotas error:', err);
+      return [];
+    }
   });
 
   ipcMain.handle('ghost:get-circuits', () => {
-    return circuitBreakerManager.getAllSnapshots();
+    try {
+      return circuitBreakerManager.getAllSnapshots();
+    } catch (err: any) {
+      console.error('[IPC] get-circuits error:', err);
+      return [];
+    }
   });
 
   ipcMain.handle('ghost:refresh-catalogs', async () => {
@@ -695,7 +783,7 @@ function setupIpcHandlers(): void {
       const orModels = await orAdapter.listModels();
       results.push(modelCatalogSync.processDiscoveredModels('openrouter', orModels));
     } catch (e: any) {
-      console.warn('[CatalogSync] OpenRouter refresh failed:', e.message);
+      console.warn('[CatalogSync] OpenRouter refresh failed:', e?.message || e);
     }
     return results;
   });
@@ -718,11 +806,70 @@ function setupIpcHandlers(): void {
   });
 
   ipcMain.handle('ghost:get-model-preferences', () => {
-    return modelRegistryStore.getPreferences();
+    try {
+      return modelRegistryStore.getPreferences();
+    } catch (err: any) {
+      console.error('[IPC] get-model-preferences error:', err);
+      return {};
+    }
   });
 
   ipcMain.handle('ghost:update-model-preferences', (_event, patch: any) => {
-    return modelRegistryStore.updatePreferences(patch);
+    try {
+      return modelRegistryStore.updatePreferences(patch);
+    } catch (err: any) {
+      console.error('[IPC] update-model-preferences error:', err);
+      return {};
+    }
+  });
+
+  ipcMain.handle('ghost:reset-circuits', () => {
+    try {
+      circuitBreakerManager.resetAll();
+      return true;
+    } catch (err: any) {
+      console.error('[IPC] reset-circuits error:', err);
+      return false;
+    }
+  });
+
+  ipcMain.handle('ghost:get-health-telemetry', () => {
+    try {
+      return healthCheckManager.getAllTelemetry();
+    } catch (err: any) {
+      console.error('[IPC] get-health-telemetry error:', err);
+      return [];
+    }
+  });
+
+  ipcMain.handle('ghost:run-health-probes', async () => {
+    const models = modelRegistry.getAll();
+    const results: any[] = [];
+    for (const m of models) {
+      if (m.health === 'down' || m.status === 'disabled') continue;
+      try {
+        const adapter = providerRegistry.getAdapter(m.providerId);
+        const res = await adapter.healthCheck(m.modelId);
+        healthCheckManager.recordProbeResult(m.providerId, m.modelId, {
+          ok: res.ok,
+          latencyMs: res.latencyMs,
+          testedCapability: 'basic_ping',
+          error: res.error,
+          timestamp: Date.now(),
+        });
+        results.push({ providerId: m.providerId, modelId: m.modelId, ...res });
+      } catch (err: any) {
+        healthCheckManager.recordProbeResult(m.providerId, m.modelId, {
+          ok: false,
+          latencyMs: 0,
+          testedCapability: 'basic_ping',
+          error: err?.message || 'Probe error',
+          timestamp: Date.now(),
+        });
+        results.push({ providerId: m.providerId, modelId: m.modelId, ok: false, latencyMs: 0, error: err?.message });
+      }
+    }
+    return results;
   });
 
 
@@ -754,30 +901,48 @@ if (!gotTheLock) {
   });
 
   app.whenReady().then(() => {
-    // Suppress the default app menu (reduces footprint)
-    Menu.setApplicationMenu(null);
+    try {
+      // Suppress the default app menu (reduces footprint)
+      Menu.setApplicationMenu(null);
 
-    setupIpcHandlers();
-    mainWindow = createGhostWindow();
-    createTray();
-    registerGlobalHotkeys();
-    startStealthHeartbeat();
+      setupIpcHandlers();
+      mainWindow = createGhostWindow();
+      createTray();
+      registerGlobalHotkeys();
+      startStealthHeartbeat();
+    } catch (err) {
+      console.error('[Ghost Copilot] Critical initialization error:', err);
+    }
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        mainWindow = createGhostWindow();
-        startStealthHeartbeat();
+      try {
+        if (BrowserWindow.getAllWindows().length === 0) {
+          mainWindow = createGhostWindow();
+          startStealthHeartbeat();
+        }
+      } catch (err) {
+        console.error('[Ghost Copilot] Activate error:', err);
       }
     });
+  }).catch((err) => {
+    console.error('[Ghost Copilot] App ready failed:', err);
   });
 
   app.on('will-quit', () => {
-    stopStealthHeartbeat();
-    globalShortcut.unregisterAll();
+    try {
+      stopStealthHeartbeat();
+      globalShortcut.unregisterAll();
+    } catch (err) {
+      console.error('[Ghost Copilot] Cleanup error on will-quit:', err);
+    }
   });
 
   app.on('window-all-closed', () => {
-    stopStealthHeartbeat();
+    try {
+      stopStealthHeartbeat();
+    } catch (err) {
+      // Non-fatal
+    }
     if (process.platform !== 'darwin') {
       app.quit();
     }

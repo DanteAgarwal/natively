@@ -64,12 +64,19 @@ export const ROUTER_PRESETS: RouterPreset[] = [
   },
 ];
 
+function normalizeBaseUrl(url?: string): string {
+  let trimmed = (url || '').trim().replace(/\/+$/, '');
+  if (!trimmed) return 'https://text.pollinations.ai/openai';
+  if (!/^https?:\/\//i.test(trimmed)) {
+    trimmed = `http://${trimmed}`;
+  }
+  return trimmed;
+}
+
 export class RouterService {
   private getClient(baseUrlOverride?: string, apiKeyOverride?: string): { client: OpenAI; baseUrl: string } {
     const config = configService.getConfig();
-    let baseUrl = (baseUrlOverride || config.routerBaseUrl || 'https://text.pollinations.ai/openai').trim();
-    // Normalize trailing slashes
-    baseUrl = baseUrl.replace(/\/+$/, '');
+    const baseUrl = normalizeBaseUrl(baseUrlOverride || config.routerBaseUrl);
 
     const rawKey = apiKeyOverride ?? config.routerApiKey ?? process.env.ROUTER_API_KEY;
     const key = (rawKey || '').trim().replace(/^["']|["']$/g, '') || 'dummy-key-for-free-router';
@@ -77,6 +84,8 @@ export class RouterService {
     const client = new OpenAI({
       apiKey: key,
       baseURL: baseUrl,
+      timeout: 15_000, // 15s connection timeout to prevent hanging on unreachable endpoints
+      maxRetries: 1,
       defaultHeaders: {
         'HTTP-Referer': 'https://github.com/evinjohnn/natively-cluely-ai-assistant',
         'X-Title': 'Natively Ghost Copilot',
@@ -155,12 +164,21 @@ export class RouterService {
 
       return fullText;
     } catch (err: any) {
+      if (isAborted && isAborted()) {
+        return '';
+      }
       const msg = err?.message || String(err);
       if (imageBase64 && (msg.includes('image') || msg.includes('vision') || msg.includes('unsupported') || msg.includes('400'))) {
         throw new Error(
           `This router endpoint/model (${targetModel}) does not support image analysis. ` +
           `Try switching to OpenRouter ("google/gemini-2.0-flash-exp:free") or Google Gemini for screen vision.`
         );
+      }
+      if (/econnrefused/i.test(msg)) {
+        throw new Error(`Cannot reach router at ${client.baseURL}. Check that your router or local server is running.`);
+      }
+      if (/timeout|timed out/i.test(msg)) {
+        throw new Error(`Router request timed out after 15s. The endpoint is unresponsive.`);
       }
       throw new Error(`Router Error (${config.routerPreset || 'custom'}): ${msg}`);
     }
@@ -171,15 +189,17 @@ export class RouterService {
     apiKey?: string;
     model?: string;
   }): Promise<{ success: boolean; error?: string }> {
-    try {
-      const config = configService.getConfig();
-      const baseUrl = (params?.baseUrl || config.routerBaseUrl || 'https://text.pollinations.ai/openai').trim().replace(/\/+$/, '');
-      const apiKey = (params?.apiKey ?? config.routerApiKey ?? '').trim() || 'dummy-key';
-      const model = (params?.model || config.routerModel || 'openai').trim();
+    const config = configService.getConfig();
+    const baseUrl = normalizeBaseUrl(params?.baseUrl || config.routerBaseUrl);
+    const apiKey = (params?.apiKey ?? config.routerApiKey ?? '').trim() || 'dummy-key';
+    const model = (params?.model || config.routerModel || 'openai').trim();
 
+    try {
       const client = new OpenAI({
         apiKey,
         baseURL: baseUrl,
+        timeout: 8_000, // 8s fast timeout for connection tests
+        maxRetries: 0,
         defaultHeaders: {
           'HTTP-Referer': 'https://github.com/evinjohnn/natively-cluely-ai-assistant',
           'X-Title': 'Natively Ghost Copilot',
@@ -194,7 +214,22 @@ export class RouterService {
 
       return { success: true };
     } catch (err: any) {
-      return { success: false, error: err?.message || 'Failed to connect to router endpoint.' };
+      const raw = err?.message || String(err);
+      let error = raw;
+      if (/econnrefused/i.test(raw)) {
+        error = `Connection refused at ${baseUrl}. Ensure your server is running.`;
+      } else if (/enotfound/i.test(raw)) {
+        error = `Host not found for ${baseUrl}. Please check the URL.`;
+      } else if (/timeout|timed out/i.test(raw)) {
+        error = `Connection timed out after 8s at ${baseUrl}.`;
+      } else if (err?.status === 401 || /unauthorized|401/i.test(raw)) {
+        error = `Authentication failed (401). Please check your API key.`;
+      } else if (err?.status === 404 || /not found|404/i.test(raw)) {
+        error = `Endpoint returned 404 Not Found at ${baseUrl}. Check path (e.g. append '/v1').`;
+      } else if (err?.status === 429 || /rate limit|429/i.test(raw)) {
+        error = `Rate limit exceeded (429) on ${model}.`;
+      }
+      return { success: false, error };
     }
   }
 }

@@ -140,8 +140,12 @@ class NativeAudioService {
       this.totalBytesBuffered = 0;
 
       this.systemCaptureInstance.start((pcmBuffer: Buffer) => {
-        if (!pcmBuffer || pcmBuffer.length === 0) return;
-        this.handleIncomingPcm(pcmBuffer);
+        try {
+          if (!pcmBuffer || pcmBuffer.length === 0) return;
+          this.handleIncomingPcm(pcmBuffer);
+        } catch (err) {
+          console.warn('[NativeAudio] Error processing audio buffer:', err);
+        }
       });
 
       this.isCapturingSystem = true;

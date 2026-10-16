@@ -26,6 +26,7 @@ export class OllamaAdapter implements ProviderAdapter {
       this.client = new OpenAI({
         apiKey: 'ollama', // Ollama doesn't require keys
         baseURL: baseUrl,
+        timeout: 15_000,
       });
       this.currentBaseUrl = baseUrl;
     }

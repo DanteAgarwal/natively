@@ -95,6 +95,7 @@ export class OpenRouterService {
     return new OpenAI({
       apiKey: key,
       baseURL: 'https://openrouter.ai/api/v1',
+      timeout: 15_000,
       defaultHeaders: {
         'HTTP-Referer': 'https://github.com/evinjohnn/natively-cluely-ai-assistant',
         'X-Title': 'Natively Ghost Copilot',
@@ -255,6 +256,8 @@ export class OpenRouterService {
       const client = new OpenAI({
         apiKey: cleanedKey,
         baseURL: 'https://openrouter.ai/api/v1',
+        timeout: 8_000,
+        maxRetries: 0,
         defaultHeaders: {
           'HTTP-Referer': 'https://github.com/evinjohnn/natively-cluely-ai-assistant',
           'X-Title': 'Natively Ghost Copilot',

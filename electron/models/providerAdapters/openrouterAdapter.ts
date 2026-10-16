@@ -27,6 +27,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
       this.client = new OpenAI({
         apiKey,
         baseURL: 'https://openrouter.ai/api/v1',
+        timeout: 15_000,
         defaultHeaders: {
           'HTTP-Referer': 'https://github.com/evinjohnn/natively-cluely-ai-assistant',
           'X-Title': 'Natively Ghost Copilot',

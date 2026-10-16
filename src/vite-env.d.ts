@@ -17,6 +17,9 @@ export interface GhostAPI {
   testModel?: (providerId: string, modelId: string) => Promise<{ ok: boolean; latencyMs: number; error?: string }>;
   getModelPreferences?: () => Promise<any>;
   updateModelPreferences?: (preferences: any) => Promise<any>;
+  resetCircuits?: () => Promise<boolean>;
+  getHealthTelemetry?: () => Promise<any[]>;
+  runHealthProbes?: () => Promise<any[]>;
   // Meeting Audio (Rust Native Module - Speaker / System Audio)
   startMeetingAudio: (deviceId?: string) => Promise<{ success: boolean; error?: string }>;
   stopMeetingAudio: () => Promise<{ success: boolean; error?: string }>;

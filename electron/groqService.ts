@@ -55,7 +55,7 @@ export class GroqService {
     if (!key) {
       throw new Error('Groq API Key is not configured. Please add your key in Settings or set GROQ_API_KEY in .env.');
     }
-    return new Groq({ apiKey: key });
+    return new Groq({ apiKey: key, timeout: 15_000 });
   }
 
   public async streamGenerate(params: {
@@ -207,7 +207,7 @@ export class GroqService {
       };
     }
     try {
-      const client = new Groq({ apiKey: cleanedKey });
+      const client = new Groq({ apiKey: cleanedKey, timeout: 8_000, maxRetries: 0 });
 
       // Step 1: Try models.list() to verify authentication without consuming generation quotas
       try {

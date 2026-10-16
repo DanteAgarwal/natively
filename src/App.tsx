@@ -1,49 +1,15 @@
-﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  Camera,
-  Send,
-  Settings,
-  Trash2,
-  ChevronDown,
-  ChevronUp,
-  Shield,
-  ShieldOff,
-  EyeOff,
-  Sparkles,
-  Zap,
-  Check,
-  X,
-  ExternalLink,
-  Loader2,
-  Copy,
-  MessageSquare,
-  ScanLine,
-  Info,
-  StopCircle,
-  ChevronRight,
-  Minus,
-  GripHorizontal,
-  Download,
-  MousePointer,
-  Briefcase,
-  Code,
-  FileText,
-  Mic,
-  MicOff,
-  Radio,
-  Headphones,
-  Volume2,
-  Layers,
-  ListOrdered,
-  Maximize2,
-} from 'lucide-react';
-import { MarkdownRenderer } from './components/MarkdownRenderer';
-import { InterviewContextModal } from './components/InterviewContextModal';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { Header } from './components/Header';
-import { HotkeyCheatSheet } from './components/HotkeyCheatSheet';
-import { SettingsModal } from './components/SettingsModal';
+import { ContextBar } from './components/ContextBar';
+import { CommandDock } from './components/CommandDock';
+import { TranscriptDrawer } from './components/TranscriptDrawer';
+import { CaptureStudio } from './components/CaptureStudio';
 import { EmptyState } from './components/EmptyState';
 import { MessageBubble } from './components/MessageBubble';
+import { HotkeyCheatSheet } from './components/HotkeyCheatSheet';
+import { SettingsModal } from './components/SettingsModal';
+import { InterviewContextModal } from './components/InterviewContextModal';
 import { UserProfileContext, DEFAULT_USER_PROFILE_CONTEXT } from './types/profile';
 import {
   Message,
@@ -51,7 +17,6 @@ import {
   ActiveTab,
   AssistantMode,
   ASSISTANT_MODES,
-  QUICK_PROMPTS,
 } from './types/config';
 
 const App: React.FC = () => {
@@ -911,6 +876,18 @@ const App: React.FC = () => {
       } catch (err: any) {
         setIsStreaming(false);
         setCaptureStatus('idle');
+        const errMessage = err?.message || 'Screen capture or vision request failed.';
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: 'model',
+            text: `⚠️ **Screen Vision Error**: ${errMessage}`,
+            timestamp: Date.now(),
+            isError: true,
+          },
+        ]);
+        setActiveTab('chat');
       }
     },
     [isStreaming, config.provider, config.geminiApiKey, config.groqApiKey, config.openrouterApiKey, config.routerPreset, config.routerBaseUrl, config.userProfileContext, capturePrompt, assistantMode]
@@ -1046,674 +1023,133 @@ const App: React.FC = () => {
           onClose={() => window.ghostAPI?.closeWindow()}
         />
 
-        {/* ── Click-Through Notice Banner ── */}
-        {isClickThrough && !isCollapsed && (
-          <div
-            className="shrink-0 px-3 py-1.5 flex items-center justify-between text-[11px] border-b no-drag"
-            style={{
-              background: 'rgba(99,102,241,0.15)',
-              borderColor: 'rgba(99,102,241,0.3)',
-              color: '#c7d2fe',
-            }}
-            onMouseEnter={() => window.ghostAPI?.setIgnoreMouseEvents(false)}
-            onMouseLeave={() => window.ghostAPI?.setIgnoreMouseEvents(true, { forward: true })}
-          >
-            <div className="flex items-center gap-1.5">
-              <MousePointer className="w-3.5 h-3.5 text-indigo-400 animate-pulse shrink-0" />
-              <span><strong>Click-Through Active</strong> — Clicks pass to apps behind. Press <kbd className="px-1 py-0.2 rounded font-mono text-[10px]" style={{ background: 'rgba(99,102,241,0.35)', border: '1px solid rgba(99,102,241,0.5)' }}>Alt+X</kbd> or <kbd className="px-1 py-0.2 rounded font-mono text-[10px]" style={{ background: 'rgba(99,102,241,0.35)', border: '1px solid rgba(99,102,241,0.5)' }}>Ctrl+Shift+X</kbd> to interact.</span>
-            </div>
-            <button
-              onClick={handleToggleClickThrough}
-              className="px-2 py-0.5 rounded text-[10px] font-medium transition-all"
-              style={{ background: 'rgba(99,102,241,0.3)', border: '1px solid rgba(99,102,241,0.45)' }}
-            >
-              Disable (Alt+X)
-            </button>
-          </div>
-        )}
-
-        {/* ── Comprehensive Keyboard Shortcuts Cheatsheet Modal ── */}
+        {/* Global Keyboard Shortcuts Cheatsheet Modal */}
         <HotkeyCheatSheet
           show={showShortcuts && !isCollapsed}
           onClose={() => setShowShortcuts(false)}
         />
 
-        {/* ── Content Area (Hidden if Collapsed) ── */}
+        {/* Main Content Workspace (Hidden when Collapsed) */}
         {!isCollapsed && (
           <div className="flex-1 flex flex-col min-h-0">
-            {/* No API Key Warning */}
-            {!hasApiKey && (
-              <div
-                className="shrink-0 mx-3 mt-2.5 px-3 py-2.5 rounded-xl flex items-center gap-2.5 text-[11px]"
-                style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', color: '#fbbf24' }}
-              >
-                <Zap className="w-3.5 h-3.5 shrink-0" />
-                <div>
-                  <span className="font-semibold">API key required. </span>
-                  <button onClick={() => setIsSettingsOpen(true)} className="underline hover:text-amber-300">Open Settings</button>
-                  {' to add your free Gemini key.'}
-                </div>
-              </div>
-            )}
+            {/* Unified Top Context & Mode Strip */}
+            <ContextBar
+              config={config}
+              assistantMode={assistantMode}
+              onSelectMode={setAssistantMode}
+              activeTab={activeTab}
+              onSelectTab={setActiveTab}
+              messageCount={messageCount}
+              isMeetingListening={isMeetingListening}
+              transcriptCount={meetingTranscripts.length}
+              onToggleTranscriptDrawer={() => setShowTranscriptDrawer((prev) => !prev)}
+              showTranscriptDrawer={showTranscriptDrawer}
+              onOpenContextModal={() => setIsContextModalOpen(true)}
+              isClickThrough={isClickThrough}
+              onToggleClickThrough={handleToggleClickThrough}
+              hasApiKey={hasApiKey}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onExportSession={handleExportSession}
+              onClearMessages={handleClearMessages}
+              windowOpacity={windowOpacity}
+              onChangeOpacity={setWindowOpacity}
+              exportNotice={exportNotice}
+            />
 
-            {/* ── Tab Navigation ── */}
-            <div
-              className="shrink-0 flex items-center gap-1 px-3 pt-2.5 pb-1.5"
-              style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-            >
-              {[
-                { id: 'chat' as const, label: 'Chat', icon: MessageSquare, shortcut: 'Alt+1', badge: messageCount > 0 ? messageCount : null },
-                { id: 'capture' as const, label: 'Screen AI', icon: ScanLine, shortcut: 'Alt+2' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all duration-150"
-                  style={{
-                    background: activeTab === tab.id ? 'rgba(59,130,246,0.15)' : 'transparent',
-                    color: activeTab === tab.id ? '#60a5fa' : 'rgba(255,255,255,0.35)',
-                    border: activeTab === tab.id ? '1px solid rgba(59,130,246,0.2)' : '1px solid transparent',
-                  }}
-                  title={`Switch to ${tab.label} [${tab.shortcut}]`}
-                >
-                  <tab.icon className="w-3 h-3" />
-                  <span>{tab.label}</span>
-                  <kbd className="font-mono text-[8px] bg-white/5 px-1 rounded opacity-50">{tab.shortcut}</kbd>
-                  {tab.badge && (
-                    <span className="px-1 py-0 rounded text-[9px] font-semibold" style={{ background: 'rgba(59,130,246,0.3)', color: '#93c5fd' }}>
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
-              ))}
-
-              {/* Export & Clear & Opacity */}
-              <div className="ml-auto flex items-center gap-2">
-                {messages.length > 0 && (
-                  <>
-                    <button
-                      onClick={handleExportSession}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] transition-colors"
-                      style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.08)' }}
-                      title="Export Session as Markdown [Alt+E]"
-                    >
-                      <Download className="w-2.5 h-2.5" />
-                      <span>Export</span>
-                      <kbd className="font-mono text-[8px] opacity-60 ml-0.5">Alt+E</kbd>
-                    </button>
-                    <button
-                      onClick={handleClearMessages}
-                      className="p-1 rounded text-white/30 hover:text-red-400 transition-colors"
-                      title="Clear Session Messages [Ctrl+K]"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </>
-                )}
-                <div className="flex items-center gap-1.5 pl-1.5 border-l border-white/5">
-                  <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.2)' }}>Opacity</span>
-                  <input
-                    type="range"
-                    min="0.3"
-                    max="1"
-                    step="0.05"
-                    value={windowOpacity}
-                    onChange={(e) => setWindowOpacity(parseFloat(e.target.value))}
-                    className="w-14 h-1 appearance-none rounded cursor-pointer"
-                    style={{ accentColor: '#3b82f6' }}
-                    title={`Opacity: ${Math.round(windowOpacity * 100)}%`}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* ── Assistant Mode Selector Strip ── */}
-            <div
-              className="shrink-0 flex items-center justify-between px-3 py-1.5"
-              style={{ background: 'rgba(255,255,255,0.015)', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-            >
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] mr-1" style={{ color: 'rgba(255,255,255,0.25)' }}>Mode:</span>
-                {ASSISTANT_MODES.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => setAssistantMode(m.id)}
-                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-all"
-                    style={{
-                      background: assistantMode === m.id ? 'rgba(59,130,246,0.18)' : 'transparent',
-                      color: assistantMode === m.id ? '#93c5fd' : 'rgba(255,255,255,0.4)',
-                      border: assistantMode === m.id ? '1px solid rgba(59,130,246,0.3)' : '1px solid transparent',
-                    }}
-                    title={m.prompt}
-                  >
-                    <span>{m.icon}</span>
-                    <span>{m.label}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-1.5 ml-auto">
-                <button
-                  onClick={() => setIsContextModalOpen(true)}
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-all ${
-                    config.userProfileContext?.enabled
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs'
-                      : 'bg-zinc-800/80 text-zinc-400 hover:text-white border border-zinc-700/60'
-                  }`}
-                  title="Configure Candidate Resume, JD & Audience Persona [Alt+U / Alt+J]"
-                >
-                  <Briefcase className="w-2.5 h-2.5 text-emerald-400" />
-                  <span>
-                    {config.userProfileContext?.enabled
-                      ? `Persona: ${config.userProfileContext.targetRole || config.userProfileContext.candidateTitle || 'Active'} (${config.userProfileContext.audienceType})`
-                      : 'Resume & JD'}
-                  </span>
-                  {config.userProfileContext?.enabled && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
-                  )}
-                </button>
-                {exportNotice && (
-                  <span className="text-[10px] text-emerald-400 font-medium">{exportNotice}</span>
-                )}
-              </div>
-            </div>
-
-            {/* ── Active Context & Persona Banner ── */}
-            {config.userProfileContext?.enabled && (
-              <div
-                className="shrink-0 mx-3 mt-1.5 px-3 py-1.5 rounded-xl flex items-center justify-between text-[11px]"
-                style={{
-                  background: 'rgba(16, 185, 129, 0.08)',
-                  border: '1px solid rgba(16, 185, 129, 0.22)',
-                  color: '#6ee7b7',
-                }}
-              >
-                <div className="flex items-center gap-2 truncate">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse" />
-                  <div className="truncate">
-                    <span className="font-semibold text-emerald-300">
-                      {config.userProfileContext.candidateName ? `${config.userProfileContext.candidateName} • ` : ''}
-                      {config.userProfileContext.targetRole || config.userProfileContext.candidateTitle || 'Candidate'}
-                    </span>
-                    {config.userProfileContext.targetCompany && (
-                      <span className="text-emerald-400/80"> @ {config.userProfileContext.targetCompany}</span>
-                    )}
-                    <span className="ml-1.5 px-1.5 py-0.2 rounded bg-emerald-950/60 border border-emerald-500/30 text-[9px] font-mono text-emerald-300">
-                      Audience: {config.userProfileContext.audienceType}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0 ml-2">
-                  <button
-                    onClick={() => setIsContextModalOpen(true)}
-                    className="text-[10px] font-semibold text-emerald-300 hover:text-white underline"
-                  >
-                    Edit Context
-                  </button>
-                  <button
-                    onClick={async () => {
-                      const updated = {
-                        ...config,
-                        userProfileContext: {
-                          ...config.userProfileContext!,
-                          enabled: false,
-                        },
-                      };
-                      setConfig(updated);
-                      if (window.ghostAPI) {
-                        await window.ghostAPI.saveConfig(updated);
-                      }
-                      setQuickToast('Persona Context Paused');
-                      setTimeout(() => setQuickToast(null), 2000);
-                    }}
-                    className="text-[10px] text-zinc-400 hover:text-red-300 transition-colors"
-                    title="Pause persona context"
-                  >
-                    Pause
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* ── CHAT TAB ── */}
+            {/* TAB 1: Real-time Copilot Chat Feed */}
             {activeTab === 'chat' && (
-              <div className="flex-1 flex flex-col min-h-0">
-                {/* Messages Feed */}
-                <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3"
+              <div className="flex-1 flex flex-col min-h-0 relative">
+                {/* Scrollable Messages Stream */}
+                <div
+                  className="flex-1 overflow-y-auto px-3.5 py-3 space-y-3"
                   style={{ scrollbarWidth: 'none' }}
                 >
                   {messages.length === 0 ? (
                     <EmptyState
-                      onCapture={() => { setActiveTab('capture'); }}
+                      onCapture={() => setActiveTab('capture')}
                       onOpenSettings={() => setIsSettingsOpen(true)}
                       hasApiKey={hasApiKey}
                       provider={config.provider}
                     />
                   ) : (
-                    messages.map((msg) => (
-                      <MessageBubble key={msg.id} msg={msg} provider={config.provider} />
-                    ))
+                    messages.map((msg, index) => {
+                      const prevUserMsg = [...messages.slice(0, index)].reverse().find((m) => m.role === 'user');
+                      return (
+                        <MessageBubble
+                          key={msg.id}
+                          msg={msg}
+                          provider={config.provider}
+                          onRetry={msg.isError && prevUserMsg ? () => executePrompt(prevUserMsg.text) : undefined}
+                          onOpenSettings={() => setIsSettingsOpen(true)}
+                        />
+                      );
+                    })
                   )}
                   <div ref={messagesEndRef} />
                 </div>
 
-                {/* Input Bar */}
-                <div className="shrink-0 p-2.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  {/* Live Voice Status Banners */}
-                  {isListening && (
-                    <div
-                      className="flex items-center justify-between px-3 py-1.5 rounded-xl mb-2 text-xs transition-all animate-pulse"
-                      style={{
-                        background: 'rgba(239, 68, 68, 0.12)',
-                        border: '1px solid rgba(239, 68, 68, 0.35)',
-                        color: '#fca5a5',
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-                        <span className="font-semibold text-[11px]">🎙️ Listening to speaker... Speak now</span>
-                      </div>
-                      <button
-                        onClick={stopListening}
-                        className="px-2 py-0.5 rounded text-[10px] font-semibold transition-all hover:bg-red-600/30 text-white flex items-center gap-1"
-                        style={{ border: '1px solid rgba(255,255,255,0.2)' }}
-                      >
-                        <span>Stop & Answer</span>
-                        <kbd className="font-mono text-[9px] bg-red-950/80 px-1 rounded">F9</kbd>
-                      </button>
-                    </div>
-                  )}
+                {/* Live Meeting Transcripts Drawer */}
+                <TranscriptDrawer
+                  isOpen={showTranscriptDrawer && meetingTranscripts.length > 0}
+                  onClose={() => setShowTranscriptDrawer(false)}
+                  transcripts={meetingTranscripts}
+                  onClear={clearMeetingTranscripts}
+                  onAnswerItem={(text) => {
+                    executePrompt(`Regarding this statement from the meeting: "${text}"\n\nWhat is the best, most direct, and impressive answer? Give me the response formatted to say aloud concisely.`);
+                  }}
+                />
 
-                  {isTranscribing && (
-                    <div
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-xl mb-2 text-xs transition-all"
-                      style={{
-                        background: 'rgba(249, 115, 22, 0.12)',
-                        border: '1px solid rgba(249, 115, 22, 0.35)',
-                        color: '#fdba74',
-                      }}
-                    >
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-400" />
-                      <span className="text-[11px] font-medium">⚡ Groq Whisper transcribing voice question...</span>
-                    </div>
-                  )}
-
-                  {/* Action bar */}
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <button
-                      onClick={() => { setActiveTab('capture'); }}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all"
-                      style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.2)' }}
-                      title="Screen Capture & Vision Analysis [Alt+S or Ctrl+Shift+S]"
-                    >
-                      <Camera className="w-3 h-3" />
-                      <span>Capture Screen</span>
-                      <kbd className="font-mono text-[9px] bg-blue-950/60 px-1 rounded opacity-70">Alt+S</kbd>
-                    </button>
-
-                    {/* Push-to-Listen (User Microphone) */}
-                    <button
-                      onClick={toggleListening}
-                      disabled={isStreaming || isTranscribing}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all ${isListening
-                        ? 'bg-red-500/20 text-red-300 border border-red-500/50 shadow-sm'
-                        : 'bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 hover:text-white hover:border-zinc-500'
-                        }`}
-                      title="Push to Listen (Microphone Dictation) [Alt+L or F9]"
-                    >
-                      {isListening ? (
-                        <>
-                          <Radio className="w-3 h-3 text-red-400 animate-pulse" />
-                          <span>Mic: Recording...</span>
-                          <kbd className="font-mono text-[9px] bg-red-950/60 px-1 rounded opacity-80">F9</kbd>
-                        </>
-                      ) : (
-                        <>
-                          <Mic className="w-3 h-3 text-emerald-400" />
-                          <span>Mic: Dictate</span>
-                          <kbd className="font-mono text-[9px] bg-zinc-700/50 px-1 rounded opacity-70">Alt+L</kbd>
-                        </>
-                      )}
-                    </button>
-
-                    {/* Meeting Audio Loopback (Rust WASAPI / Speakers) */}
-                    <button
-                      onClick={toggleMeetingAudio}
-                      disabled={isStreaming}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all ${isMeetingListening
-                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-sm animate-pulse'
-                        : 'bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 hover:text-white hover:border-cyan-500/50'
-                        }`}
-                      title="Sync Meeting Audio (Interviewer loopback via WASAPI) [Alt+M or Ctrl+Shift+M]"
-                    >
-                      <Headphones className={`w-3 h-3 ${isMeetingListening ? 'text-cyan-400' : 'text-cyan-500'}`} />
-                      <span>{isMeetingListening ? 'Meeting: Listening' : 'Sync Meeting'}</span>
-                      <kbd className="font-mono text-[9px] bg-cyan-950/60 px-1 rounded opacity-70">Alt+M</kbd>
-                    </button>
-
-                    {messageCount > 0 && !isStreaming && (
-                      <button
-                        onClick={handleClearMessages}
-                        className="p-1 rounded-lg transition-colors ml-auto flex items-center gap-1"
-                        style={{ color: 'rgba(239,68,68,0.6)' }}
-                        title="Clear conversation [Ctrl+K]"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span className="text-[9px] font-mono opacity-50">^K</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {/* ── Natively Meeting Quick Action Pills ── */}
-                  <div className="flex items-center gap-1 mb-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
-                    <button
-                      onClick={handleWhatToAnswer}
-                      disabled={isStreaming}
-                      className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all bg-blue-500/15 text-blue-300 border border-blue-500/30 hover:bg-blue-500/25 disabled:opacity-40"
-                      title="Analyze recent meeting audio and suggest best answer [Alt+W]"
-                    >
-                      <span>🎯</span>
-                      <span>What to answer?</span>
-                      <kbd className="font-mono text-[8px] bg-blue-950/40 px-1 rounded opacity-70">Alt+W</kbd>
-                    </button>
-                    <button
-                      onClick={handleRecapMeeting}
-                      disabled={isStreaming}
-                      className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 disabled:opacity-40"
-                      title="Summarize key points from meeting transcript [Alt+R]"
-                    >
-                      <span>📋</span>
-                      <span>Recap</span>
-                      <kbd className="font-mono text-[8px] bg-emerald-950/40 px-1 rounded opacity-70">Alt+R</kbd>
-                    </button>
-                    <button
-                      onClick={handleFollowUp}
-                      disabled={isStreaming}
-                      className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 disabled:opacity-40"
-                      title="Suggest 3 smart follow-up questions [Alt+F]"
-                    >
-                      <span>💡</span>
-                      <span>Follow Up</span>
-                      <kbd className="font-mono text-[8px] bg-amber-950/40 px-1 rounded opacity-70">Alt+F</kbd>
-                    </button>
-                    <button
-                      onClick={handleShorten}
-                      disabled={isStreaming}
-                      className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all bg-purple-500/15 text-purple-300 border border-purple-500/30 hover:bg-purple-500/25 disabled:opacity-40"
-                      title="Condense previous answer into bullet points [Alt+K]"
-                    >
-                      <span>✂️</span>
-                      <span>Shorten</span>
-                      <kbd className="font-mono text-[8px] bg-purple-950/40 px-1 rounded opacity-70">Alt+K</kbd>
-                    </button>
-                    {meetingTranscripts.length > 0 && (
-                      <button
-                        onClick={() => setShowTranscriptDrawer(!showTranscriptDrawer)}
-                        className={`shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all ml-auto ${showTranscriptDrawer
-                          ? 'bg-zinc-700 text-white'
-                          : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
-                          }`}
-                        title="Toggle Live Meeting Transcript Feed [Alt+T]"
-                      >
-                        <ListOrdered className="w-2.5 h-2.5" />
-                        <span>Transcript ({meetingTranscripts.length})</span>
-                        <kbd className="font-mono text-[8px] bg-zinc-800 px-1 rounded opacity-70">Alt+T</kbd>
-                      </button>
-                    )}
-                  </div>
-
-                  {/* ── Meeting Transcript Live Drawer ── */}
-                  {showTranscriptDrawer && meetingTranscripts.length > 0 && (
-                    <div
-                      className="rounded-xl p-2.5 mb-2 text-xs space-y-1.5 max-h-36 overflow-y-auto transition-all"
-                      style={{
-                        background: 'rgba(24, 24, 27, 0.95)',
-                        border: '1px solid rgba(6, 182, 212, 0.3)',
-                        scrollbarWidth: 'thin',
-                      }}
-                    >
-                      <div className="flex items-center justify-between pb-1 border-b border-zinc-800">
-                        <span className="text-[10px] font-semibold text-cyan-400 flex items-center gap-1">
-                          <Volume2 className="w-3 h-3" /> Live Meeting Audio Feed
-                        </span>
-                        <button
-                          onClick={clearMeetingTranscripts}
-                          className="text-[9px] text-zinc-500 hover:text-red-400 transition-colors"
-                        >
-                          Clear
-                        </button>
-                      </div>
-                      {meetingTranscripts.slice(-8).map((t) => (
-                        <div key={t.id} className="text-[11px] leading-relaxed flex gap-1.5">
-                          <span className={`font-semibold shrink-0 ${t.speaker === 'meeting' ? 'text-cyan-400' : 'text-emerald-400'}`}>
-                            {t.speaker === 'meeting' ? '🔊 Speaker:' : '🎙️ You:'}
-                          </span>
-                          <span className="text-zinc-200">{t.text}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div
-                    className="flex items-center gap-1.5 rounded-xl px-2 py-1.5 transition-all"
-                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
-                  >
-                    <input
-                      ref={inputRef}
-                      type="text"
-                      value={inputPrompt}
-                      onChange={(e) => setInputPrompt(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSendMessage();
-                        }
-                      }}
-                      placeholder={
-                        isListening
-                          ? 'Listening to spoken words...'
-                          : hasApiKey
-                            ? 'Ask anything or press F9 to speak...'
-                            : 'Set API key in Settings first...'
-                      }
-                      disabled={isStreaming || !hasApiKey || isListening}
-                      className="flex-1 bg-transparent text-xs outline-none px-1"
-                      style={{ color: 'rgba(255,255,255,0.85)', caretColor: '#3b82f6' }}
-                    />
-
-                    {/* Microphone Push-to-Listen Icon Button */}
-                    <button
-                      onClick={toggleListening}
-                      disabled={isStreaming || isTranscribing}
-                      className={`p-1.5 rounded-lg transition-all ${isListening
-                        ? 'bg-red-500/25 text-red-300 border border-red-500/40 shadow-sm'
-                        : 'hover:bg-white/10 text-zinc-400 hover:text-white'
-                        }`}
-                      title={isListening ? 'Stop listening & send (F9)' : 'Push to Listen [F9 or Ctrl+Shift+L]'}
-                    >
-                      {isListening ? (
-                        <MicOff className="w-3.5 h-3.5 text-red-400" />
-                      ) : (
-                        <Mic className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-
-                    {isStreaming ? (
-                      <button
-                        onClick={handleStopStream}
-                        className="p-1.5 rounded-lg transition-all"
-                        style={{ background: 'rgba(239,68,68,0.15)', color: '#f87171' }}
-                        title="Stop generation"
-                      >
-                        <StopCircle className="w-3.5 h-3.5" />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleSendMessage}
-                        disabled={!inputPrompt.trim() || !hasApiKey}
-                        className="p-1.5 rounded-lg transition-all disabled:pointer-events-none"
-                        style={{
-                          background: inputPrompt.trim() && hasApiKey ? '#2563eb' : 'rgba(255,255,255,0.06)',
-                          color: inputPrompt.trim() && hasApiKey ? 'white' : 'rgba(255,255,255,0.2)',
-                        }}
-                        title="Send (Enter)"
-                      >
-                        <Send className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
+                {/* Bottom Dock: Input + Meeting Action Pills + Voice Mic */}
+                <CommandDock
+                  inputPrompt={inputPrompt}
+                  setInputPrompt={setInputPrompt}
+                  onSendMessage={handleSendMessage}
+                  onCaptureAndAnalyze={() => handleCaptureAndAnalyze()}
+                  isStreaming={isStreaming}
+                  onStopStream={handleStopStream}
+                  hasApiKey={hasApiKey}
+                  isListening={isListening}
+                  isTranscribing={isTranscribing}
+                  onToggleListening={toggleListening}
+                  onWhatToAnswer={handleWhatToAnswer}
+                  onRecap={handleRecapMeeting}
+                  onFollowUp={handleFollowUp}
+                  onShorten={handleShorten}
+                  transcriptCount={meetingTranscripts.length}
+                  showTranscriptDrawer={showTranscriptDrawer}
+                  onToggleTranscriptDrawer={() => setShowTranscriptDrawer((prev) => !prev)}
+                />
               </div>
             )}
 
-            {/* ── SCREEN CAPTURE TAB ── */}
+            {/* TAB 2: Screen Vision AI Workspace */}
             {activeTab === 'capture' && (
-              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto px-3 py-3 space-y-3"
-                style={{ scrollbarWidth: 'none' }}
-              >
-                {/* Ghost Shield Status Card */}
-                <div
-                  className="rounded-xl p-3.5"
-                  style={{
-                    background: isGhostActive ? 'rgba(16,185,129,0.06)' : 'rgba(245,158,11,0.06)',
-                    border: `1px solid ${isGhostActive ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}`,
-                  }}
-                >
-                  <div className="flex items-center gap-2.5 mb-2">
-                    {isGhostActive ? (
-                      <Shield className="w-4 h-4" style={{ color: '#34d399' }} />
-                    ) : (
-                      <ShieldOff className="w-4 h-4" style={{ color: '#fbbf24' }} />
-                    )}
-                    <div>
-                      <div className="text-[12px] font-semibold text-emerald-400">
-                        🛡️ Ghost Shield Locked ON
-                      </div>
-                      <div className="text-[11px]" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                        Permanently locked ON to eliminate any risk of accidental screen leaks during interviews. Window is 100% invisible in Zoom, Meet, Teams, OBS & Discord screen share.
-                      </div>
-                    </div>
-                    <div
-                      className="ml-auto px-2.5 py-1 rounded-lg text-[10px] font-semibold cursor-default select-none"
-                      style={{
-                        background: 'rgba(16,185,129,0.15)',
-                        color: '#34d399',
-                        border: '1px solid rgba(16,185,129,0.3)',
-                      }}
-                    >
-                      Locked ON ✓
-                    </div>
-                  </div>
-                  <div
-                    className="text-[10px] font-mono px-2 py-1.5 rounded-lg"
-                    style={{ background: 'rgba(0,0,0,0.3)', color: 'rgba(255,255,255,0.35)' }}
-                  >
-                    Works via Windows/macOS OS-level display affinity API — not detectable by any app
-                  </div>
-                </div>
-
-                {/* Quick Capture Prompts */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] font-semibold" style={{ color: 'rgba(255,255,255,0.5)' }}>Quick Capture</span>
-                    <span className="text-[10px] font-mono" style={{ color: 'rgba(255,255,255,0.25)' }}>Ctrl+Shift+S</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {QUICK_PROMPTS.map((qp) => (
-                      <button
-                        key={qp.label}
-                        onClick={() => handleCaptureAndAnalyze(qp.prompt)}
-                        disabled={isStreaming || !hasApiKey}
-                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-left transition-all duration-150 active:scale-95 disabled:opacity-40"
-                        style={{
-                          background: 'rgba(255,255,255,0.04)',
-                          border: '1px solid rgba(255,255,255,0.07)',
-                          color: 'rgba(255,255,255,0.7)',
-                        }}
-                      >
-                        <span className="text-base leading-none">{qp.icon}</span>
-                        <div>
-                          <div className="text-[11px] font-semibold">{qp.label}</div>
-                          <div className="text-[9px] mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>
-                            {qp.prompt.slice(0, 32)}...
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Custom Prompt Capture */}
-                <div>
-                  <div className="text-[11px] font-semibold mb-2" style={{ color: 'rgba(255,255,255,0.5)' }}>Custom Prompt + Capture</div>
-                  <div
-                    className="flex items-center gap-2 rounded-xl px-3 py-2 transition-all"
-                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
-                  >
-                    <input
-                      ref={captureInputRef}
-                      type="text"
-                      value={capturePrompt}
-                      onChange={(e) => setCapturePrompt(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleCaptureAndAnalyze();
-                      }}
-                      placeholder="e.g. Find the bug in this code..."
-                      disabled={isStreaming || !hasApiKey}
-                      className="flex-1 bg-transparent text-xs outline-none"
-                      style={{ color: 'rgba(255,255,255,0.8)', caretColor: '#3b82f6' }}
-                    />
-                    <button
-                      onClick={() => handleCaptureAndAnalyze()}
-                      disabled={isStreaming || !hasApiKey}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-40"
-                      style={{ background: '#2563eb', color: 'white' }}
-                    >
-                      {captureStatus === 'capturing' ? (
-                        <><Loader2 className="w-3 h-3 animate-spin" /><span>Capturing</span></>
-                      ) : captureStatus === 'analyzing' ? (
-                        <><Loader2 className="w-3 h-3 animate-spin" /><span>Analyzing</span></>
-                      ) : (
-                        <><Camera className="w-3 h-3" /><span>Capture</span></>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Recent screenshots / results teaser */}
-                {messages.filter((m) => m.screenshotPreview).length > 0 && (
-                  <div>
-                    <div className="text-[11px] font-semibold mb-1.5" style={{ color: 'rgba(255,255,255,0.5)' }}>Recent Captures</div>
-                    <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
-                      {messages.filter((m) => m.screenshotPreview).slice(-4).map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => { setActiveTab('chat'); }}
-                          className="shrink-0 rounded-lg overflow-hidden border transition-all hover:opacity-80"
-                          style={{ border: '1px solid rgba(255,255,255,0.1)' }}
-                          title="Click to view in chat"
-                        >
-                          <img
-                            src={m.screenshotPreview}
-                            alt="Capture"
-                            className="w-20 h-12 object-cover"
-                          />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <CaptureStudio
+                onCapture={(prompt) => handleCaptureAndAnalyze(prompt)}
+                capturePrompt={capturePrompt}
+                setCapturePrompt={setCapturePrompt}
+                captureStatus={captureStatus}
+                isStreaming={isStreaming}
+                hasApiKey={hasApiKey}
+                isGhostActive={isGhostActive}
+                recentCaptures={messages
+                  .filter((m) => m.screenshotPreview)
+                  .map((m) => ({ id: m.id, previewUrl: m.screenshotPreview!, prompt: m.text }))}
+                onSelectCapture={(_id) => {
+                  setActiveTab('chat');
+                }}
+                onOpenSettings={() => setIsSettingsOpen(true)}
+              />
             )}
           </div>
         )}
 
-        {/* Collapsed Bar */}
+        {/* Collapsed Pill Indicator */}
         {isCollapsed && (
           <div className="flex items-center justify-center h-2">
             <button
               onClick={() => setIsCollapsed(false)}
-              className="flex items-center gap-1.5 text-[10px] transition-all"
-              style={{ color: 'rgba(255,255,255,0.25)' }}
+              className="flex items-center gap-1.5 text-[10px] text-white/30 hover:text-white/60 transition-all"
             >
               <ChevronDown className="w-3 h-3" />
             </button>

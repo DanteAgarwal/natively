@@ -21,6 +21,9 @@ export interface GhostAPI {
   testModel: (providerId: string, modelId: string) => Promise<{ ok: boolean; latencyMs: number; error?: string }>;
   getModelPreferences: () => Promise<any>;
   updateModelPreferences: (preferences: any) => Promise<any>;
+  resetCircuits: () => Promise<boolean>;
+  getHealthTelemetry: () => Promise<any[]>;
+  runHealthProbes: () => Promise<any[]>;
 
   // Meeting Audio (Rust Native Module - Speaker / System Audio)
   startMeetingAudio: (deviceId?: string) => Promise<{ success: boolean; error?: string }>;
@@ -74,6 +77,9 @@ const api: GhostAPI = {
   testModel: (providerId, modelId) => ipcRenderer.invoke('ghost:test-model', { providerId, modelId }),
   getModelPreferences: () => ipcRenderer.invoke('ghost:get-model-preferences'),
   updateModelPreferences: (preferences) => ipcRenderer.invoke('ghost:update-model-preferences', preferences),
+  resetCircuits: () => ipcRenderer.invoke('ghost:reset-circuits'),
+  getHealthTelemetry: () => ipcRenderer.invoke('ghost:get-health-telemetry'),
+  runHealthProbes: () => ipcRenderer.invoke('ghost:run-health-probes'),
 
   // Meeting Audio
   startMeetingAudio: (deviceId) => ipcRenderer.invoke('ghost:start-meeting-audio', { deviceId }),
