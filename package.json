@@ -73,7 +73,7 @@
           ]
         }
       ],
-      "icon": "assets/icons/win/icon.ico",
+      "icon": "assets/icon.png",
       "requestedExecutionLevel": "asInvoker"
     },
     "linux": {

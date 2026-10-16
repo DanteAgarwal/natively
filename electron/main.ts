@@ -408,12 +408,6 @@ function registerGlobalHotkeys(): void {
   };
   safeRegister('Alt+K', sendShorten, 'Shorten Response (Alt+K)');
   safeRegister('CommandOrControl+Shift+K', sendShorten, 'Shorten Response (Ctrl+Shift+K)');
-
-  safeRegister('CommandOrControl+Shift+Y', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('ghost:trigger-copy-response');
-    }
-  }, 'Copy Last Response Action');
 }
 
 let currentStreamAbort = false;

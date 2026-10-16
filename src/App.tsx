@@ -32,7 +32,6 @@ const App: React.FC = () => {
   const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('chat');
   const [capturePrompt, setCapturePrompt] = useState('');
-  const [showQuickPrompts, setShowQuickPrompts] = useState(false);
   const [windowOpacity, setWindowOpacity] = useState(0.97);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
@@ -77,24 +76,12 @@ const App: React.FC = () => {
   const [quickToast, setQuickToast] = useState<string | null>(null);
   const [isBigOverlay, setIsBigOverlay] = useState<boolean>(false);
 
-  const toggleMeetingRef = useRef<() => void>(() => {});
-  const captureAndAnalyzeRef = useRef<() => void>(() => {});
-  const exportSessionRef = useRef<() => void>(() => {});
-  const clearMessagesRef = useRef<() => void>(() => {});
-  const whatToAnswerRef = useRef<() => void>(() => {});
-  const recapRef = useRef<() => void>(() => {});
-  const followUpRef = useRef<() => void>(() => {});
-  const shortenRef = useRef<() => void>(() => {});
-  const cycleProviderRef = useRef<() => void>(() => {});
-  const toggleWindowSizeRef = useRef<() => void>(() => {});
   const copyLastResponseRef = useRef<() => void>(() => {});
-  const stopStreamRef = useRef<() => void>(() => {});
   const executeShortcutActionRef = useRef<(actionId: ShortcutActionId) => void>(() => {});
   const lastShortcutTimeRef = useRef<Record<string, number>>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const captureInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<boolean>(false);
 
   // Load config on mount
@@ -102,22 +89,6 @@ const App: React.FC = () => {
     if (window.ghostAPI) {
       window.ghostAPI.getConfig().then((cfg) => {
         if (cfg) {
-          const obsoleteGemini = [
-            'gemini-2.5-flash',
-            'gemini-2.0-flash',
-            'gemini-2.5-pro',
-            'gemini-2.5-flash-lite',
-            'gemini-1.5-flash',
-            'gemini-1.5-pro',
-            'gemini-3-flash-preview',
-          ];
-          if (obsoleteGemini.includes(cfg.model)) {
-            cfg.model = 'gemini-3.8-flash';
-          }
-          const obsoleteGroq = ['llama-3.2-11b-vision-preview', 'deepseek-r1-distill-llama-70b', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b'];
-          if (obsoleteGroq.includes(cfg.groqModel)) {
-            cfg.groqModel = 'llama-3.3-70b-versatile';
-          }
           if (cfg.selectedAudioOutputDevice) {
             setSelectedOutputDevice(cfg.selectedAudioOutputDevice);
           }
@@ -438,8 +409,10 @@ const App: React.FC = () => {
     if (window.ghostAPI) {
       const res = await window.ghostAPI.exportSession(markdown);
       if (res.success) {
-        setExportNotice('Saved to file ✓');
-        setTimeout(() => setExportNotice(null), 3500);
+        setExportNotice('Saved ✓');
+        setTimeout(() => setExportNotice(null), 3000);
+        setQuickToast('Session saved to file ✓');
+        setTimeout(() => setQuickToast(null), 2500);
       }
     }
   };
@@ -737,21 +710,10 @@ const App: React.FC = () => {
     }
   };
 
-  // Keep action refs updated for universal hotkey dispatcher
+  // Keep active action refs synchronized
   useEffect(() => {
     toggleListeningRef.current = toggleListening;
-    toggleMeetingRef.current = toggleMeetingAudio;
-    captureAndAnalyzeRef.current = handleCaptureAndAnalyze;
-    exportSessionRef.current = handleExportSession;
-    clearMessagesRef.current = handleClearMessages;
-    whatToAnswerRef.current = handleWhatToAnswer;
-    recapRef.current = handleRecapMeeting;
-    followUpRef.current = handleFollowUp;
-    shortenRef.current = handleShorten;
-    cycleProviderRef.current = handleCycleProvider;
-    toggleWindowSizeRef.current = handleToggleWindowSize;
     copyLastResponseRef.current = handleCopyLastResponse;
-    stopStreamRef.current = handleStopStream;
     executeShortcutActionRef.current = handleExecuteShortcutAction;
   });
 

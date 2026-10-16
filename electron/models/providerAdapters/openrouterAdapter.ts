@@ -29,7 +29,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
         baseURL: 'https://openrouter.ai/api/v1',
         timeout: 15_000,
         defaultHeaders: {
-          'HTTP-Referer': 'https://github.com/evinjohnn/natively-cluely-ai-assistant',
+          'HTTP-Referer': process.env.APP_URL || 'https://github.com/evinjohnn/natively',
           'X-Title': 'Natively Ghost Copilot',
         },
       });
