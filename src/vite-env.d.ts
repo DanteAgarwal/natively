@@ -20,6 +20,11 @@ export interface GhostAPI {
   resetCircuits?: () => Promise<boolean>;
   getHealthTelemetry?: () => Promise<any[]>;
   runHealthProbes?: () => Promise<any[]>;
+  // Stealth Hybrid Search
+  searchWeb?: (query: string, maxResults?: number) => Promise<any[]>;
+  searchMeeting?: (query: string, maxResults?: number) => Promise<any[]>;
+  searchCodebase?: (query: string, rootDir?: string, maxMatches?: number) => Promise<any[]>;
+  universalSearch?: (query: string) => Promise<{ query: string; webResults: any[]; meetingResults: any[]; codebaseResults: any[]; searchTimeMs: number }>;
   // Meeting Audio (Rust Native Module - Speaker / System Audio)
   startMeetingAudio: (deviceId?: string) => Promise<{ success: boolean; error?: string }>;
   stopMeetingAudio: () => Promise<{ success: boolean; error?: string }>;

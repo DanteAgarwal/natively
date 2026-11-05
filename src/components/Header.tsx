@@ -205,7 +205,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onClose}
           className="p-1.5 rounded-lg text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-all ml-0.5"
-          title="Quit Natively"
+          title="Quit GhostRider AI"
         >
           <X className="w-3.5 h-3.5" />
         </button>

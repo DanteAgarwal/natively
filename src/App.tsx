@@ -48,10 +48,14 @@ const App: React.FC = () => {
     routerModel: 'openai',
     systemInstruction: '',
     model: 'gemini-3.8-flash',
-    groqModel: 'llama-3.3-70b-versatile',
+    groqModel: 'openai/gpt-oss-120b',
     temperature: 0.7,
     autoFallback: true,
     userProfileContext: DEFAULT_USER_PROFILE_CONTEXT,
+    enableWebSearch: true,
+    searchProvider: 'hybrid',
+    braveApiKey: '',
+    codebasePath: '',
   });
 
   const [isContextModalOpen, setIsContextModalOpen] = useState(false);
@@ -395,14 +399,14 @@ const App: React.FC = () => {
             ? (config.routerModel || config.routerPreset)
             : config.model;
 
-    let markdown = `# Ghost AI Session Export\n*Date: ${new Date().toLocaleString()}*  \n*Provider: ${config.provider.toUpperCase()}*  \n*Model: ${activeModelName}*  \n*Mode: ${assistantMode.toUpperCase()}*\n\n---\n\n`;
+    let markdown = `# GhostRider AI Session Export\n*Date: ${new Date().toLocaleString()}*  \n*Provider: ${config.provider.toUpperCase()}*  \n*Model: ${activeModelName}*  \n*Mode: ${assistantMode.toUpperCase()}*\n\n---\n\n`;
 
     for (const msg of messages) {
       const timeStr = new Date(msg.timestamp).toLocaleTimeString();
       if (msg.role === 'user') {
         markdown += `### 👤 Prompt (${timeStr})\n\n${msg.text}\n\n`;
       } else {
-        markdown += `### 🤖 Ghost Copilot (${timeStr})\n\n${msg.text}\n\n---\n\n`;
+        markdown += `### 🤖 GhostRider AI (${timeStr})\n\n${msg.text}\n\n---\n\n`;
       }
     }
 

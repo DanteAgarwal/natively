@@ -39,7 +39,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 
       {/* Headings */}
       <h2 className="text-sm font-semibold text-white tracking-wide">
-        Natively Ghost Copilot
+        GhostRider AI
       </h2>
       <p className="text-xs text-white/50 max-w-[280px] mt-1 mb-6 leading-relaxed">
         100% invisible on screen shares. Live answers for coding screener tests, system design, and executive interviews.

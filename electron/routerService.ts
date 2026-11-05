@@ -88,7 +88,7 @@ export class RouterService {
       maxRetries: 1,
       defaultHeaders: {
         'HTTP-Referer': 'https://github.com/evinjohnn/natively-cluely-ai-assistant',
-        'X-Title': 'Natively Ghost Copilot',
+        'X-Title': 'GhostRider AI',
       },
     });
 
@@ -171,7 +171,7 @@ export class RouterService {
       if (imageBase64 && (msg.includes('image') || msg.includes('vision') || msg.includes('unsupported') || msg.includes('400'))) {
         throw new Error(
           `This router endpoint/model (${targetModel}) does not support image analysis. ` +
-          `Try switching to OpenRouter ("google/gemini-2.0-flash-exp:free") or Google Gemini for screen vision.`
+          `Try switching to OpenRouter ("google/gemma-4-31b-it:free") or Google Gemini for screen vision.`
         );
       }
       if (/econnrefused/i.test(msg)) {
@@ -202,7 +202,7 @@ export class RouterService {
         maxRetries: 0,
         defaultHeaders: {
           'HTTP-Referer': 'https://github.com/evinjohnn/natively-cluely-ai-assistant',
-          'X-Title': 'Natively Ghost Copilot',
+          'X-Title': 'GhostRider AI',
         },
       });
 

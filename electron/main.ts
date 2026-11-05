@@ -7,6 +7,7 @@ import { routerService } from './routerService';
 import { captureScreen } from './screenshotService';
 import { configService } from './storeService';
 import { nativeAudioService } from './nativeAudioService';
+import { stealthSearchService } from './stealthSearchService';
 import {
   modelRegistry,
   capabilityResolver,
@@ -31,12 +32,12 @@ try {
 // Process-Level Crash Guards
 // ─────────────────────────────────────────────────────────────
 process.on('uncaughtException', (error) => {
-  console.error('[Ghost Copilot] Uncaught exception:', error);
+  console.error('[GhostRider AI] Uncaught exception:', error);
   // Keep running — the overlay should never crash silently
 });
 
 process.on('unhandledRejection', (reason) => {
-  console.error('[Ghost Copilot] Unhandled promise rejection:', reason);
+  console.error('[GhostRider AI] Unhandled promise rejection:', reason);
 });
 
 let mainWindow: BrowserWindow | null = null;
@@ -147,12 +148,12 @@ function createGhostWindow(): BrowserWindow {
 
   if (isDev) {
     win.loadURL('http://localhost:5180').catch(() => {
-      console.warn('[Ghost Copilot] Dev server at http://localhost:5180 not reachable. Attempting fallback to dist/index.html...');
+      console.warn('[GhostRider AI] Dev server at http://localhost:5180 not reachable. Attempting fallback to dist/index.html...');
       win.loadFile(path.join(__dirname, '../dist/index.html')).catch(() => {
         const fallbackHtml = `
           <!DOCTYPE html>
           <html>
-            <head><meta charset="UTF-8"><title>Ghost Copilot</title></head>
+            <head><meta charset="UTF-8"><title>GhostRider AI</title></head>
             <body style="background:#18181b;color:#e4e4e7;font-family:Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;padding:20px;box-sizing:border-box;text-align:center;">
               <div style="background:#27272a;border:1px solid #3f3f46;border-radius:12px;padding:24px;max-width:420px;box-shadow:0 16px 40px rgba(0,0,0,0.6);">
                 <div style="font-size:32px;margin-bottom:8px;">⚡</div>
@@ -207,7 +208,7 @@ function createTray(): void {
     if (!tray) return;
     const contextMenu = Menu.buildFromTemplate([
       {
-        label: 'Ghost AI Copilot',
+        label: 'GhostRider AI',
         enabled: false,
       },
       { type: 'separator' },
@@ -238,14 +239,14 @@ function createTray(): void {
       },
       { type: 'separator' },
       {
-        label: 'Quit Ghost AI',
+        label: 'Quit GhostRider AI',
         click: () => app.quit(),
       },
     ]);
     tray.setContextMenu(contextMenu);
   };
 
-  tray.setToolTip('Ghost AI Copilot — Invisible Screen Share Overlay');
+  tray.setToolTip('GhostRider AI — Invisible Screen Share Overlay');
   updateTrayContextMenu();
 
   tray.on('click', () => toggleWindowVisibility());
@@ -436,11 +437,39 @@ async function streamAiResponse(params: {
     preferences = { billingMode: 'FREE_ONLY' as const, privacyMode: 'STANDARD' as const, hardCaps: { maxFallbackAttempts: 2 } };
   }
 
+  // 0. Stealth Hybrid Search Augmentation
+  let effectivePrompt = params.prompt;
+  const lowerPrompt = params.prompt.toLowerCase();
+  const hasExplicitDirective =
+    lowerPrompt.startsWith('@web') ||
+    lowerPrompt.startsWith('@code') ||
+    lowerPrompt.startsWith('@file') ||
+    lowerPrompt.startsWith('@meeting') ||
+    lowerPrompt.startsWith('@notes');
+
+  const isSearchIntent =
+    hasExplicitDirective ||
+    (config.enableWebSearch &&
+      primaryProvider !== 'gemini' &&
+      /(search|latest|recent|news|current|who is|what is|documentation|weather|find|look up)/i.test(params.prompt));
+
+  if (isSearchIntent) {
+    try {
+      const searchResults = await stealthSearchService.universalSearch(params.prompt);
+      const searchContext = stealthSearchService.formatSearchResultsForPrompt(searchResults);
+      if (searchContext) {
+        effectivePrompt = `${searchContext}\n${params.prompt}`;
+      }
+    } catch (searchErr) {
+      console.warn('[StealthSearch] Search augmentation warning:', searchErr);
+    }
+  }
+
   // 1. Resolve request intent, modality constraints & task profile (PRD §6.3, §8.1)
   let routingRequest;
   try {
     routingRequest = capabilityResolver.resolveRequest({
-      prompt: params.prompt,
+      prompt: effectivePrompt,
       imageBase64: params.imageBase64,
       billingMode: preferences.billingMode,
       privacyMode: preferences.privacyMode,
@@ -455,7 +484,7 @@ async function streamAiResponse(params: {
   const result = await fallbackOrchestrator.execute(
     routingRequest,
     {
-      prompt: params.prompt,
+      prompt: effectivePrompt,
       imageBase64: params.imageBase64,
       history: params.history,
       onChunk: params.onChunk,
@@ -910,6 +939,23 @@ function setupIpcHandlers(): void {
   });
 
 
+  // ── 7.6 Stealth Hybrid Search ──
+  ipcMain.handle('ghost:search-web', async (_event, { query, maxResults }: { query: string; maxResults?: number }) => {
+    return stealthSearchService.searchWeb(query, maxResults);
+  });
+
+  ipcMain.handle('ghost:search-meeting', (_event, { query, maxResults }: { query: string; maxResults?: number }) => {
+    return stealthSearchService.searchMeetingHistory(query, maxResults);
+  });
+
+  ipcMain.handle('ghost:search-codebase', async (_event, { query, rootDir, maxMatches }: { query: string; rootDir?: string; maxMatches?: number }) => {
+    return stealthSearchService.searchCodebase(query, { rootDir, maxMatches });
+  });
+
+  ipcMain.handle('ghost:universal-search', async (_event, { query }: { query: string }) => {
+    return stealthSearchService.universalSearch(query);
+  });
+
   // ── 8. Window Controls ──
   ipcMain.handle('ghost:minimize', () => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
@@ -948,7 +994,7 @@ if (!gotTheLock) {
       registerGlobalHotkeys();
       startStealthHeartbeat();
     } catch (err) {
-      console.error('[Ghost Copilot] Critical initialization error:', err);
+      console.error('[GhostRider AI] Critical initialization error:', err);
     }
 
     app.on('activate', () => {
@@ -958,11 +1004,11 @@ if (!gotTheLock) {
           startStealthHeartbeat();
         }
       } catch (err) {
-        console.error('[Ghost Copilot] Activate error:', err);
+        console.error('[GhostRider AI] Activate error:', err);
       }
     });
   }).catch((err) => {
-    console.error('[Ghost Copilot] App ready failed:', err);
+    console.error('[GhostRider AI] App ready failed:', err);
   });
 
   app.on('will-quit', () => {
@@ -970,7 +1016,7 @@ if (!gotTheLock) {
       stopStealthHeartbeat();
       globalShortcut.unregisterAll();
     } catch (err) {
-      console.error('[Ghost Copilot] Cleanup error on will-quit:', err);
+      console.error('[GhostRider AI] Cleanup error on will-quit:', err);
     }
   });
 

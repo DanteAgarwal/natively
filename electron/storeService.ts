@@ -68,6 +68,10 @@ export interface AppConfig {
   autoFallback: boolean;
   selectedAudioOutputDevice?: string;
   userProfileContext?: UserProfileContext;
+  enableWebSearch?: boolean;
+  searchProvider?: 'hybrid' | 'gemini' | 'duckduckgo' | 'brave';
+  braveApiKey?: string;
+  codebasePath?: string;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -82,11 +86,15 @@ const DEFAULT_CONFIG: AppConfig = {
   routerModel: process.env.ROUTER_MODEL || 'openai',
   systemInstruction: 'You are an expert AI assistant. Provide concise, clear, and direct answers. When code is requested, provide clean and correct code with brief explanation. Do not include unnecessary filler words.',
   model: 'gemini-3.8-flash',
-  groqModel: 'llama-3.3-70b-versatile',
+  groqModel: 'openai/gpt-oss-120b',
   temperature: 0.7,
   autoFallback: true,
   selectedAudioOutputDevice: '',
   userProfileContext: DEFAULT_USER_PROFILE_CONTEXT,
+  enableWebSearch: true,
+  searchProvider: 'hybrid',
+  braveApiKey: process.env.BRAVE_API_KEY || '',
+  codebasePath: '',
 };
 
 class ConfigService {
@@ -117,9 +125,14 @@ class ConfigService {
     }
 
     let savedGroqModel = this.store.get('groqModel') || DEFAULT_CONFIG.groqModel;
-    const obsoleteGroq = ['llama-3.2-11b-vision-preview', 'deepseek-r1-distill-llama-70b', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b'];
+    const obsoleteGroq = [
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'llama-3.2-11b-vision-preview',
+      'deepseek-r1-distill-llama-70b',
+    ];
     if (obsoleteGroq.includes(savedGroqModel)) {
-      savedGroqModel = 'llama-3.3-70b-versatile';
+      savedGroqModel = 'openai/gpt-oss-120b';
       this.store.set('groqModel', savedGroqModel);
     }
 

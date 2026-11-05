@@ -46,10 +46,12 @@ export class GeminiService {
     history?: ChatMessage[];
     onChunk: (chunk: string) => void;
     isAborted?: () => boolean;
+    enableWebSearch?: boolean;
   }): Promise<string> {
-    const { prompt, imageBase64, history = [], onChunk, isAborted } = params;
+    const { prompt, imageBase64, history = [], onChunk, isAborted, enableWebSearch } = params;
     const ai = this.getClient();
     const config = configService.getConfig();
+    const shouldUseWebSearch = enableWebSearch ?? config.enableWebSearch ?? false;
 
     let requestedModel = config.model || 'gemini-3.8-flash';
     const obsoleteGemini = [
@@ -96,11 +98,16 @@ export class GeminiService {
     currentParts.push({ text: prompt });
     contents.push({ role: 'user', parts: currentParts });
 
-    const getGenConfigForModel = (modelName: string, withThinking: boolean = true) => {
+    const getGenConfigForModel = (modelName: string, withThinking: boolean = true, withSearch: boolean = false) => {
       const genConfig: any = {
         systemInstruction,
         temperature: config.temperature ?? 0.7,
       };
+
+      // Approach 1: Gemini Cloud-Native Grounding (Zero local network footprint, 10/10 stealth)
+      if (withSearch && (modelName.includes('3.8') || modelName.includes('3.7') || modelName.includes('3.6') || modelName.includes('3.5-flash'))) {
+        genConfig.tools = [{ googleSearch: {} }];
+      }
 
       // Only pass thinkingConfig to models that officially support it (e.g. 3.8, 3.7)
       // Never send thinkingConfig (even thinkingBudget: 0) to lite models, which causes 400 INVALID_ARGUMENT
@@ -122,20 +129,23 @@ export class GeminiService {
       }
       attempt++;
 
-      // Try first with standard config, and if a 400 error occurs due to parameters, retry once without thinkingConfig
-      for (const allowThinking of [true, false]) {
-        try {
-          if (attempt > 1 && allowThinking) {
-            onChunk(`\n\n> 🛡️ *Gemini fault tolerance: Switching to healthy model \`${currentModel}\`...*\n\n`);
-          }
+      // Try first with search if requested, falling back to non-search then non-thinking if errors occur
+      const searchOptions = shouldUseWebSearch ? [true, false] : [false];
 
-          const genConfig = getGenConfigForModel(currentModel, allowThinking);
+      for (const allowSearch of searchOptions) {
+        for (const allowThinking of [true, false]) {
+          try {
+            if (attempt > 1 && allowThinking && allowSearch === searchOptions[0]) {
+              onChunk(`\n\n> 🛡️ *Gemini fault tolerance: Switching to healthy model \`${currentModel}\`...*\n\n`);
+            }
 
-          const responseStream = await ai.models.generateContentStream({
-            model: currentModel,
-            contents,
-            config: genConfig,
-          });
+            const genConfig = getGenConfigForModel(currentModel, allowThinking, allowSearch);
+
+            const responseStream = await ai.models.generateContentStream({
+              model: currentModel,
+              contents,
+              config: genConfig,
+            });
 
           let fullText = '';
           for await (const chunk of responseStream) {
@@ -199,6 +209,7 @@ export class GeminiService {
         }
       }
     }
+  }
 
     const finalMsg = lastError?.message || 'All Gemini models failed';
     if (finalMsg.includes('RESOURCE_EXHAUSTED') || finalMsg.includes('quota') || finalMsg.includes('429')) {

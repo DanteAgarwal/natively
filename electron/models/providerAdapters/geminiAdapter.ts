@@ -86,7 +86,7 @@ export class GeminiAdapter implements ProviderAdapter {
     return contents;
   }
 
-  private buildGenConfig(params: InvocationParams, allowThinking: boolean = true): any {
+  private buildGenConfig(params: InvocationParams, allowThinking: boolean = true, allowSearch: boolean = true): any {
     const appConfig = configService.getConfig();
     const effectiveSystem = params.systemInstruction || buildEffectiveSystemInstruction(appConfig);
     const genConfig: any = {};
@@ -95,6 +95,10 @@ export class GeminiAdapter implements ProviderAdapter {
     }
     if (params.temperature !== undefined) {
       genConfig.temperature = params.temperature;
+    }
+    // Approach 1: Gemini Cloud-Native Grounding (Zero local network footprint, 10/10 stealth)
+    if (allowSearch && appConfig.enableWebSearch && (params.modelId.includes('3.8') || params.modelId.includes('3.7') || params.modelId.includes('3.6') || params.modelId.includes('3.5-flash'))) {
+      genConfig.tools = [{ googleSearch: {} }];
     }
     if (allowThinking && (params.modelId.includes('3.8') || params.modelId.includes('3.7'))) {
       genConfig.thinkingConfig = {
@@ -118,8 +122,15 @@ export class GeminiAdapter implements ProviderAdapter {
         config: genConfig,
       });
     } catch (err: any) {
-      if (genConfig.thinkingConfig && (err?.message?.includes('thinkingConfig') || err?.status === 400)) {
-        genConfig = this.buildGenConfig(params, false);
+      if (genConfig.tools && (err?.message?.includes('tools') || err?.status === 400)) {
+        genConfig = this.buildGenConfig(params, true, false);
+        response = await client.models.generateContent({
+          model: params.modelId,
+          contents,
+          config: genConfig,
+        });
+      } else if (genConfig.thinkingConfig && (err?.message?.includes('thinkingConfig') || err?.status === 400)) {
+        genConfig = this.buildGenConfig(params, false, false);
         response = await client.models.generateContent({
           model: params.modelId,
           contents,
@@ -161,8 +172,15 @@ export class GeminiAdapter implements ProviderAdapter {
         config: genConfig,
       });
     } catch (err: any) {
-      if (genConfig.thinkingConfig && (err?.message?.includes('thinkingConfig') || err?.status === 400)) {
-        genConfig = this.buildGenConfig(params, false);
+      if (genConfig.tools && (err?.message?.includes('tools') || err?.status === 400)) {
+        genConfig = this.buildGenConfig(params, true, false);
+        responseStream = await client.models.generateContentStream({
+          model: params.modelId,
+          contents,
+          config: genConfig,
+        });
+      } else if (genConfig.thinkingConfig && (err?.message?.includes('thinkingConfig') || err?.status === 400)) {
+        genConfig = this.buildGenConfig(params, false, false);
         responseStream = await client.models.generateContentStream({
           model: params.modelId,
           contents,

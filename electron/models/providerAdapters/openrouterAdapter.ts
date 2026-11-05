@@ -30,7 +30,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
         timeout: 15_000,
         defaultHeaders: {
           'HTTP-Referer': process.env.APP_URL || 'https://github.com/evinjohnn/natively',
-          'X-Title': 'Natively Ghost Copilot',
+          'X-Title': 'GhostRider AI',
         },
       });
       this.currentApiKey = apiKey;

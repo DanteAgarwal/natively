@@ -12,20 +12,6 @@ export interface GroqModelInfo {
 
 export const ACTIVE_GROQ_MODELS: GroqModelInfo[] = [
   {
-    id: 'llama-3.3-70b-versatile',
-    name: 'Llama 3.3 70B Versatile',
-    description: 'Meta Flagship — Top Intelligence, Reasoning & Coding (128k context, ~280 tok/s) ⚡',
-    contextWindow: 131072,
-    badge: 'Recommended',
-  },
-  {
-    id: 'llama-3.1-8b-instant',
-    name: 'Llama 3.1 8B Instant',
-    description: 'Ultra-Fast Lightweight Model with high 20k TPM limit (~560 tok/s) 🚀',
-    contextWindow: 131072,
-    badge: 'Speed',
-  },
-  {
     id: 'openai/gpt-oss-120b',
     name: 'OpenAI GPT OSS 120B',
     description: 'Flagship 120B Reasoning & Architecture Model on Groq LPU 🧠',
@@ -42,8 +28,6 @@ export const ACTIVE_GROQ_MODELS: GroqModelInfo[] = [
 ];
 
 const DEFAULT_FALLBACK_CHAIN = [
-  'llama-3.3-70b-versatile',
-  'llama-3.1-8b-instant',
   'openai/gpt-oss-120b',
   'openai/gpt-oss-20b',
 ];
@@ -69,8 +53,10 @@ export class GroqService {
     const client = this.getClient();
     const config = configService.getConfig();
 
-    let requestedModel = config.groqModel || 'llama-3.3-70b-versatile';
+    let requestedModel = config.groqModel || 'openai/gpt-oss-120b';
     const obsoleteGroq = [
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
       'gemma2-9b-it',
       'deepseek-r1-distill-qwen-32b',
       'qwen-2.5-coder-32b',
@@ -79,7 +65,7 @@ export class GroqService {
       'deepseek-r1-distill-llama-70b',
     ];
     if (obsoleteGroq.includes(requestedModel)) {
-      requestedModel = 'llama-3.3-70b-versatile';
+      requestedModel = 'openai/gpt-oss-120b';
     }
     
     // Build ordered list of candidate models for fault-tolerant execution
@@ -221,7 +207,7 @@ export class GroqService {
       }
 
       // Step 2: Fault-tolerant verification with active test models
-      const testModels = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'openai/gpt-oss-120b'];
+      const testModels = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'];
       let lastErrorMessage = '';
 
       for (const model of testModels) {

@@ -1,8 +1,8 @@
 {
-  "name": "natively",
+  "name": "ghostrider-ai",
   "version": "1.1.6",
   "main": "./dist-electron/main.js",
-  "description": "Natively is a meeting notes app that uses AI to generate notes from your meetings.",
+  "description": "GhostRider AI is a stealth AI copilot that provides real-time answers during interviews, meetings, and coding challenges.",
   "scripts": {
     "clean": "rimraf dist dist-electron",
     "dev": "npm run app:dev",
@@ -19,9 +19,9 @@
     "dist": "npm run build && electron-builder"
   },
   "build": {
-    "appId": "com.electron.meeting-notes",
+    "appId": "com.ghostrider.ai",
     "afterPack": "./scripts/ad-hoc-sign.js",
-    "productName": "Natively",
+    "productName": "GhostRider AI",
     "files": [
       "dist/**/*",
       "dist-electron/**/*",

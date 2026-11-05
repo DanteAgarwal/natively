@@ -41,7 +41,7 @@ interface SettingsModalProps {
   onTestKey: (provider?: 'gemini' | 'groq' | 'openrouter' | 'router') => Promise<void>;
 }
 
-type SettingsTab = 'providers' | 'health' | 'routing' | 'circuits' | 'persona' | 'audio';
+type SettingsTab = 'providers' | 'health' | 'routing' | 'circuits' | 'persona' | 'audio' | 'search';
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -79,6 +79,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [searchFilter, setSearchFilter] = useState('');
   const [providerFilter, setProviderFilter] = useState<string>('all');
   const [resettingCircuits, setResettingCircuits] = useState(false);
+  const [searchTestQuery, setSearchTestQuery] = useState('');
+  const [searchTestResults, setSearchTestResults] = useState<any>(null);
+  const [isSearchingTest, setIsSearchingTest] = useState(false);
 
   // Load telemetry and registry whenever modal opens
   const refreshRegistryData = async () => {
@@ -235,7 +238,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-white tracking-wide">Ghost Copilot Settings</h3>
+                <h3 className="text-sm font-semibold text-white tracking-wide">GhostRider AI Settings</h3>
                 <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
                   v1.1.6 Resilience
                 </span>
@@ -337,7 +340,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               }`}
             >
               <Headphones className="w-4 h-4 shrink-0" />
-              <span>Audio & Ghost Mode</span>
+              <span>Audio & Stealth</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('search')}
+              className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all text-left ${
+                activeTab === 'search'
+                  ? 'bg-blue-600 text-white font-semibold shadow-md'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Search className="w-4 h-4 shrink-0" />
+                <span>Stealth Search</span>
+              </div>
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-blue-500/20 text-blue-300">
+                Hybrid
+              </span>
             </button>
 
             <div className="mt-auto pt-3 border-t border-white/5 space-y-2">
@@ -1194,6 +1214,225 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
             )}
+
+            {/* ── TAB 7: Stealth Hybrid Search ── */}
+            {activeTab === 'search' && (
+              <div className="space-y-4">
+                {/* Header Banner */}
+                <div className="p-3.5 rounded-xl bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-transparent border border-blue-500/20 flex items-start gap-3">
+                  <Search className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+                  <div className="text-xs space-y-0.5">
+                    <span className="font-semibold text-white">Stealth Hybrid Search Engine 🕵️</span>
+                    <p className="text-white/60 leading-relaxed text-[11px]">
+                      100% in-process search with zero external console windows and zero child processes. Your screen-share stealth is permanently preserved.
+                    </p>
+                  </div>
+                </div>
+
+                {/* ── 1. Live Web Search Config ── */}
+                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/10 space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                        <span>🌐 Live Web Search Grounding</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono">Real-Time</span>
+                      </span>
+                      <p className="text-[11px] text-white/50">Inject real-time web knowledge and citations into AI responses.</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.enableWebSearch ?? true}
+                        onChange={(e) => setConfig({ ...config, enableWebSearch: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  <div className="space-y-1.5 pt-2 border-t border-white/5">
+                    <label className="text-xs font-medium text-white/70">Web Search Strategy</label>
+                    <select
+                      value={config.searchProvider || 'hybrid'}
+                      onChange={(e: any) => setConfig({ ...config, searchProvider: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl text-xs bg-zinc-900 border border-white/10 text-white outline-none cursor-pointer"
+                    >
+                      <option value="hybrid">🔀 Hybrid Auto-Detect (Gemini Grounding + In-Process DuckDuckGo Fallback)</option>
+                      <option value="gemini">👻 Approach 1: Gemini Cloud-Native Grounding (Zero local network, 10/10 stealth)</option>
+                      <option value="duckduckgo">🕵️ Approach 2: In-Process DuckDuckGo (Zero Keys, 100% Private & Free)</option>
+                      <option value="brave">🦁 Brave Search API (Requires free Brave API key)</option>
+                    </select>
+                  </div>
+
+                  {config.searchProvider === 'brave' && (
+                    <div className="space-y-1.5 pt-2 border-t border-white/5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-medium text-white/70">Brave Search API Key</label>
+                        <a
+                          href="https://brave.com/search/api/"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[11px] text-blue-400 hover:underline flex items-center gap-1"
+                        >
+                          Get free key (2k/mo free) <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                      <input
+                        type="password"
+                        value={config.braveApiKey || ''}
+                        onChange={(e) => setConfig({ ...config, braveApiKey: e.target.value })}
+                        placeholder="BSA..."
+                        className="w-full px-3 py-2 rounded-xl text-xs bg-zinc-900 border border-white/10 text-white font-mono placeholder:text-white/20 outline-none"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* ── 2. Local File & Codebase Search ── */}
+                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/10 space-y-3">
+                  <div className="space-y-0.5">
+                    <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                      <span>💻 Local Codebase & File Search</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">Offline</span>
+                    </span>
+                    <p className="text-[11px] text-white/50">Instant in-process regex/keyword grep through your local projects without spawning ripgrep or cmd.</p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-white/70">Root Codebase Directory Path</label>
+                    <input
+                      type="text"
+                      value={config.codebasePath || ''}
+                      onChange={(e) => setConfig({ ...config, codebasePath: e.target.value })}
+                      placeholder="e.g. C:\Users\dell\Projects\my-app (leave empty to use current project)"
+                      className="w-full px-3 py-2 rounded-xl text-xs bg-zinc-900 border border-white/10 text-white font-mono placeholder:text-white/20 outline-none"
+                    />
+                    <p className="text-[10px] text-white/40">Automatically skips node_modules, .git, build folders, and binary files.</p>
+                  </div>
+                </div>
+
+                {/* ── 3. Meeting & History Directives & Live Test ── */}
+                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/10 space-y-3">
+                  <div className="space-y-0.5">
+                    <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                      <span>📝 Meeting & History Directives</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono">In-Memory</span>
+                    </span>
+                    <p className="text-[11px] text-white/50">Instantly recall past quotes, questions, or action items from speaker loopback and microphone transcripts.</p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-black/40 border border-white/5 space-y-1.5 text-[11px]">
+                    <span className="text-white/70 font-medium">Quick Directives in Chat:</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 font-mono text-[10px]">
+                      <div className="p-2 rounded bg-white/5 border border-white/5">
+                        <span className="text-blue-400 font-bold">@web &lt;query&gt;</span>
+                        <p className="text-white/50 font-sans mt-0.5">Force live web search</p>
+                      </div>
+                      <div className="p-2 rounded bg-white/5 border border-white/5">
+                        <span className="text-emerald-400 font-bold">@code &lt;query&gt;</span>
+                        <p className="text-white/50 font-sans mt-0.5">Search local files & code</p>
+                      </div>
+                      <div className="p-2 rounded bg-white/5 border border-white/5">
+                        <span className="text-purple-400 font-bold">@meeting &lt;query&gt;</span>
+                        <p className="text-white/50 font-sans mt-0.5">Search audio transcripts</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Interactive Test Search Input */}
+                  <div className="pt-2 border-t border-white/5 space-y-2">
+                    <label className="text-xs font-medium text-white/70">Test Hybrid Search Live</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={searchTestQuery}
+                        onChange={(e) => setSearchTestQuery(e.target.value)}
+                        onKeyDown={async (e) => {
+                          if (e.key === 'Enter' && searchTestQuery.trim()) {
+                            setIsSearchingTest(true);
+                            try {
+                              const res = await (window.ghostAPI as any).universalSearch(searchTestQuery.trim());
+                              setSearchTestResults(res);
+                            } catch (err) {
+                              console.error(err);
+                            } finally {
+                              setIsSearchingTest(false);
+                            }
+                          }
+                        }}
+                        placeholder="Type a test query (e.g. '@web React 19' or 'auth') and hit Enter"
+                        className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-zinc-900 border border-white/10 text-white placeholder:text-white/20 outline-none"
+                      />
+                      <button
+                        type="button"
+                        disabled={isSearchingTest || !searchTestQuery.trim()}
+                        onClick={async () => {
+                          if (!searchTestQuery.trim()) return;
+                          setIsSearchingTest(true);
+                          try {
+                            const res = await (window.ghostAPI as any).universalSearch(searchTestQuery.trim());
+                            setSearchTestResults(res);
+                          } catch (err) {
+                            console.error(err);
+                          } finally {
+                            setIsSearchingTest(false);
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40 flex items-center gap-1.5 transition-all"
+                      >
+                        {isSearchingTest ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                        <span>Search</span>
+                      </button>
+                    </div>
+
+                    {searchTestResults && (
+                      <div className="mt-2 p-2.5 rounded-lg bg-zinc-950 border border-white/10 max-h-48 overflow-y-auto text-xs space-y-2">
+                        <div className="text-[10px] text-white/40 flex justify-between">
+                          <span>Query: &ldquo;{searchTestResults.query}&rdquo;</span>
+                          <span>Completed in {searchTestResults.searchTimeMs}ms</span>
+                        </div>
+                        {searchTestResults.webResults?.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[11px] font-semibold text-blue-400">🌐 Web Results ({searchTestResults.webResults.length})</span>
+                            {searchTestResults.webResults.map((r, idx) => (
+                              <div key={idx} className="p-1.5 rounded bg-white/5 text-[11px]">
+                                <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-300 hover:underline font-medium block truncate">
+                                  {r.title}
+                                </a>
+                                <p className="text-white/60 text-[10px] line-clamp-2 mt-0.5">{r.snippet}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {searchTestResults.codebaseResults?.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[11px] font-semibold text-emerald-400">💻 Codebase Results ({searchTestResults.codebaseResults.length})</span>
+                            {searchTestResults.codebaseResults.map((c, idx) => (
+                              <div key={idx} className="p-1.5 rounded bg-white/5 text-[10px] font-mono">
+                                <span className="text-emerald-300 font-semibold">{c.relativePath}:{c.lineNumber}</span>
+                                <pre className="text-white/70 overflow-x-auto mt-0.5 whitespace-pre-wrap">{c.lineContent}</pre>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {searchTestResults.meetingResults?.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[11px] font-semibold text-purple-400">📝 Meeting Dialogue ({searchTestResults.meetingResults.length})</span>
+                            {searchTestResults.meetingResults.map((m, idx) => (
+                              <div key={idx} className="p-1.5 rounded bg-white/5 text-[10px]">
+                                <span className="text-purple-300 font-semibold">[{m.formattedTime}] {m.speaker}:</span>
+                                <p className="text-white/70 mt-0.5">{m.text}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
 

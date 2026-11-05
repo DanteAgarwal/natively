@@ -3,11 +3,7 @@
 // Migrates all hardcoded model arrays from geminiService, groqService,
 // openrouterService, and routerService into canonical ModelRecord entries.
 //
-// PRD §7.2 actions applied:
-//   - Groq llama-3.3-70b-versatile:  DEPRECATED (shutdown 16 Aug 2026)
-//   - Groq llama-3.1-8b-instant:     DEPRECATED (shutdown 16 Aug 2026)
-//   - OpenRouter gemini-2.0-flash:   DEPRECATED (Google API shutdown)
-//   - Cerebras:                       PROMO_CREDIT (one-time $5 credit)
+// Cerebras: PROMO_CREDIT (one-time $5 credit)
 //
 // YAGNI: no discovery, no HTTP calls — pure static data.
 // ---------------------------------------------------------------------------
@@ -100,36 +96,6 @@ const GEMINI_MODELS: ModelRecord[] = [
 // ═══════════════════════════════════════════════════════════════════════════
 
 const GROQ_MODELS: ModelRecord[] = [
-  // ── DEPRECATED: shutdown 16 Aug 2026 per Groq deprecation docs ──
-  {
-    providerId: 'groq',
-    modelId: 'llama-3.3-70b-versatile',
-    displayName: 'Llama 3.3 70B Versatile',
-    status: 'deprecated',
-    inputModalities: ['text'],
-    outputModalities: ['text'],
-    capabilities: ['reasoning', 'coding'],
-    costClass: 'FREE_QUOTA',
-    contextWindow: 131072,
-    health: 'down',
-    pricingEvidenceUrl: 'https://console.groq.com/docs/rate-limits',
-    deprecationNote: 'Groq shutdown 16 Aug 2026. Replace with openai/gpt-oss-120b.',
-  },
-  {
-    providerId: 'groq',
-    modelId: 'llama-3.1-8b-instant',
-    displayName: 'Llama 3.1 8B Instant',
-    status: 'deprecated',
-    inputModalities: ['text'],
-    outputModalities: ['text'],
-    capabilities: [],
-    costClass: 'FREE_QUOTA',
-    contextWindow: 131072,
-    health: 'down',
-    pricingEvidenceUrl: 'https://console.groq.com/docs/rate-limits',
-    deprecationNote: 'Groq shutdown 16 Aug 2026. Replace with openai/gpt-oss-20b.',
-  },
-
   // ── ACTIVE Groq text models ──
   {
     providerId: 'groq',
@@ -294,23 +260,6 @@ const OPENROUTER_MODELS: ModelRecord[] = [
     health: 'unknown',
     pricingEvidenceUrl: 'https://openrouter.ai/collections/free-models',
     quota: { rpm: 20, rpd: 50 },
-  },
-
-  // ── DEPRECATED: Google shut down Gemini 2.0 Flash on its own API ──
-  {
-    providerId: 'openrouter',
-    modelId: 'google/gemini-2.0-flash-exp:free',
-    displayName: 'Gemini 2.0 Flash Experimental (Legacy)',
-    status: 'deprecated',
-    inputModalities: ['text', 'image'],
-    outputModalities: ['text'],
-    capabilities: ['vision'],
-    costClass: 'FREE_MODEL',
-    contextWindow: 1048576,
-    health: 'down',
-    pricingEvidenceUrl: 'https://ai.google.dev/gemini-api/docs/models',
-    deprecationNote: 'Google Gemini 2.0 Flash API shut down. OpenRouter availability must be independently tested.',
-    dataUseNote: 'Legacy — do not use for new routing.',
   },
 ];
 

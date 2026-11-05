@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/icon.png" width="150" alt="Natively AI Assistant Logo">
+  <img src="assets/icon.png" width="150" alt="GhostRider AI Logo">
 
   # Natively – Open Source AI Meeting Assistant & Cluely Alternative
 
@@ -16,17 +16,17 @@
 
 <div align="center">
 
-> **Natively** is a **free, privacy-first AI Copilot** for **Google Meet, Zoom, and Teams**. It serves as an open-source alternative to Cluely, providing **real-time transcription**, **interview assistance**, and **automated meeting notes** completely locally.
+> **GhostRider AI** is a **free, privacy-first AI Copilot** for **Google Meet, Zoom, and Teams**. It serves as an open-source alternative to Cluely, providing **real-time transcription**, **interview assistance**, and **automated meeting notes** completely locally.
 
-Unlike cloud-only tools, Natively uses **Local RAG (Retrieval Augmented Generation)** to remember past conversations, giving you instant answers during **technical interviews**, **sales calls**, and **daily standups**.
+Unlike cloud-only tools, GhostRider AI uses **Local RAG (Retrieval Augmented Generation)** to remember past conversations, giving you instant answers during **technical interviews**, **sales calls**, and **daily standups**.
 
 </div>
 
 ---
 
-## Why Natively?
+## Why GhostRider AI?
 
-While other tools focus on being "lightweight" wrappers, Natively is a complete intelligence system.
+While other tools focus on being "lightweight" wrappers, GhostRider AI is a complete intelligence system.
 
 - **Local Vector Database (RAG):** We embed your meetings locally so you can ask, "What did John say about the API last week?"
 - **Rich Dashboard:** A full UI to manage, search, and export your history—not just a floating window.
@@ -60,8 +60,8 @@ This demo shows **a complete live meeting scenario**:
 
 <div align="center">
 
-### Download Natively
-*The privacy-first AI assistant for meetings.*
+### Download GhostRider AI
+*The privacy-first AI stealth copilot for interviews, meetings, and coding challenges.*
 
 [![Download for macOS](https://img.shields.io/badge/Download_for-macOS-white?style=for-the-badge&logo=apple&logoColor=black)](https://github.com/evinjohnn/natively-cluely-ai-assistant/releases/latest)
 [![Download for Windows](https://img.shields.io/badge/Download_for-Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/evinjohnn/natively-cluely-ai-assistant/releases/tag/v1.1.2)
@@ -75,7 +75,7 @@ This demo shows **a complete live meeting scenario**:
 > 1.  **"Unidentified Developer"**: If you see this, Right-click the app > Select **Open** > Click **Open**.
 > 2.  **"App is Damaged"**: If you see this (common with DMGs), run this in Terminal:
 >     ```bash
->     xattr -cr /Applications/Natively.app
+>     xattr -cr /Applications/GhostRiderAI.app
 >     ```
 >     *(Or point to wherever you installed the app)*
 
@@ -92,7 +92,7 @@ This demo shows **a complete live meeting scenario**:
 
 ## Table of Contents
 
-- [Why Natively?](#why-natively)
+- [Why GhostRider AI?](#why-ghostrider-ai)
 - [Privacy & Security](#privacy--security-core-design-principle)
 - [Quick Start (End Users)](#quick-start-end-users)
 - [Installation (Developers)](#installation-developers--contributors)
@@ -111,9 +111,9 @@ This demo shows **a complete live meeting scenario**:
 
 ---
 
-## What Is Natively?
+## What Is GhostRider AI?
 
-**Natively** is a **desktop AI assistant for live situations**:
+**GhostRider AI** is a **desktop AI assistant for live situations**:
 - Meetings
 - Interviews
 - Presentations
@@ -157,7 +157,7 @@ You explicitly control:
 
 ### AI Credentials & Speech Providers
 
-**Natively is 100% free to use with your own keys.**  
+**GhostRider AI is 100% free to use with your own keys.**  
 Connect **any** speech provider and **any** LLM. No subscriptions, no markups, no hidden fees. All keys are stored locally.
 
 ### Unlimited Free Transcription (Whisper, Google, Deepgram)
@@ -170,7 +170,7 @@ Connect **any** speech provider and **any** LLM. No subscriptions, no markups, n
 - **IBM Watson** (API Key + Region)
 
 ### AI Engine Support (Bring Your Own Key)
-Connect Natively to **any** leading model or local inference engine.
+Connect GhostRider AI to **any** leading model or local inference engine.
 
 | Provider | Best For |
 | :--- | :--- |
@@ -203,7 +203,7 @@ Setup Summary:
 3. Create a Service Account  
 4. Assign role: `roles/speech.client`  
 5. Generate and download a JSON key  
-6. Point Natively to the JSON file in settings 
+6. Point GhostRider AI to the JSON file in settings 
 
 ---
 
@@ -296,7 +296,7 @@ npm run dist
 - Manual or voice-triggered prompts
 
 ### Dual-Channel Audio Intelligence
-Natively understands that *listening* to a meeting and *talking* to an AI are different tasks. We treat them separately:
+GhostRider AI understands that *listening* to a meeting and *talking* to an AI are different tasks. We treat them separately:
 
 - **System Audio (The Meeting):** Captures high-fidelity audio directly from your OS (Zoom, Teams, Meet). It "hears" what your colleagues are saying without interference from your room noise.
 - **Microphone Input (Your Voice):** A dedicated channel for your voice commands and dictation. Toggle it instantly to ask Natively a private question without muting your meeting software.
@@ -320,7 +320,7 @@ Natively understands that *listening* to a meeting and *talking* to an AI are di
 ---
 
 ## Meeting Intelligence Dashboard
-Natively includes a powerful, local-first meeting management system to review, search, and manage your entire conversation history.
+GhostRider AI includes a powerful, local-first meeting management system to review, search, and manage your entire conversation history.
 
 ![Dashboard Preview](assets/dashboard-preview.png)
 
@@ -353,9 +353,9 @@ Natively includes a powerful, local-first meeting management system to review, s
 
 ## Comparison
 
-**Natively is built on a simple promise: Any speech provider, any API key, 100% free to use, and universally compatible.**
+**GhostRider AI is built on a simple promise: Any speech provider, any API key, 100% free to use, and universally compatible.**
 
-| Feature | Natively | Commercial Tools (Cluely, etc.) | Other OSS |
+| Feature | GhostRider AI | Commercial Tools (Cluely, etc.) | Other OSS |
 | :--- | :--- | :--- | :--- |
 | **Price** | **Free (BYOK)** | $20 - $50 / month | Free |
 | **Speech Providers** | **Any (Google, Groq, Deepgram, etc.)** | Locked to Vendor | Limited |
@@ -373,7 +373,7 @@ Natively includes a powerful, local-first meeting management system to review, s
 
 ## Architecture Overview
 
-Natively processes audio, screen context, and user input locally, maintains a rolling context window, and sends only the required prompt data to the selected AI provider (local or cloud).
+GhostRider AI processes audio, screen context, and user input locally, maintains a rolling context window, and sends only the required prompt data to the selected AI provider (local or cloud).
 
 No raw audio, screenshots, or transcripts are stored or transmitted unless explicitly enabled by the user. 
 
@@ -403,7 +403,7 @@ No raw audio, screenshots, or transcripts are stored or transmitted unless expli
 
 ## Responsible Use
 
-Natively is intended for:
+GhostRider AI is intended for:
 - Learning
 - Productivity
 - Accessibility
@@ -446,7 +446,7 @@ If you run or modify this software over a network, you must provide the full sou
 
 ---
 
-**Star this repo if Natively helps you succeed in meetings, interviews, or presentations!**
+**Star this repo if GhostRider AI helps you succeed in meetings, interviews, or presentations!**
 
 ---
 
@@ -454,20 +454,20 @@ If you run or modify this software over a network, you must provide the full sou
 
 ## FAQ
 
-#### Is Natively really free?
-Yes. Natively is an open-source project. You only pay for what you use by bringing your own API keys (Gemini, OpenAI, Anthropic, etc.), or use it **100% free** by connecting to a local Ollama instance.
+#### Is GhostRider AI really free?
+Yes. GhostRider AI is an open-source project. You only pay for what you use by bringing your own API keys (Gemini, OpenAI, Anthropic, etc.), or use it **100% free** by connecting to a local Ollama instance.
 
-#### Does Natively work with Zoom, Teams, and Google Meet?
-Yes. Natively uses a Rust-based system audio capture that works universally across any desktop application, including Zoom, Microsoft Teams, Google Meet, Slack, and Discord.
+#### Does GhostRider AI work with Zoom, Teams, and Google Meet?
+Yes. GhostRider AI uses a Rust-based system audio capture that works universally across any desktop application, including Zoom, Microsoft Teams, Google Meet, Slack, and Discord.
 
 #### Is my data safe?
-Natively is built on **Privacy-by-Design**. All transcripts, vector embeddings (Local RAG), and keys are stored locally on your machine. We have no backend and collect zero telemetry.
+GhostRider AI is built on **Privacy-by-Design**. All transcripts, vector embeddings (Local RAG), and keys are stored locally on your machine. We have no backend and collect zero telemetry.
 
 #### Can I use it for technical interviews?
-Natively is a powerful assistant for any professional situation. However, users are responsible for complying with their company policies and interview guidelines.
+GhostRider AI is a powerful assistant for any professional situation. However, users are responsible for complying with their company policies and interview guidelines.
 
 #### How do I use local models?
-Simply install **Ollama**, run a model (e.g., `ollama run llama3`), and Natively will automatically detect it. Enable "Ollama" in the AI Providers settings to switch to offline mode.
+Simply install **Ollama**, run a model (e.g., `ollama run llama3`), and GhostRider AI will automatically detect it. Enable "Ollama" in the AI Providers settings to switch to offline mode.
 
 ---
 

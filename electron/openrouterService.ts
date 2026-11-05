@@ -65,14 +65,6 @@ export const ACTIVE_OPENROUTER_MODELS: OpenRouterModelInfo[] = [
     contextWindow: 256000,
     badge: 'Coding',
   },
-  {
-    id: 'google/gemini-2.0-flash-exp:free',
-    name: 'Gemini 2.0 Flash Experimental (Free Legacy)',
-    description: 'Multimodal Vision Legacy Reference 👁️',
-    contextWindow: 1048576,
-    badge: 'Legacy Vision',
-    supportsVision: true,
-  },
 ];
 
 const DEFAULT_OPENROUTER_FALLBACK_CHAIN = [
@@ -98,7 +90,7 @@ export class OpenRouterService {
       timeout: 15_000,
       defaultHeaders: {
         'HTTP-Referer': process.env.APP_URL || 'https://github.com/evinjohnn/natively',
-        'X-Title': 'Natively Ghost Copilot',
+        'X-Title': 'GhostRider AI',
       },
     });
   }
@@ -260,7 +252,7 @@ export class OpenRouterService {
         maxRetries: 0,
         defaultHeaders: {
           'HTTP-Referer': 'https://github.com/evinjohnn/natively-cluely-ai-assistant',
-          'X-Title': 'Natively Ghost Copilot',
+          'X-Title': 'GhostRider AI',
         },
       });
 

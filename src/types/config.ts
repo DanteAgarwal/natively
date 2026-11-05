@@ -26,6 +26,10 @@ export interface AppConfig {
   autoFallback: boolean;
   selectedAudioOutputDevice?: string;
   userProfileContext?: UserProfileContext;
+  enableWebSearch?: boolean;
+  searchProvider?: 'hybrid' | 'gemini' | 'duckduckgo' | 'brave';
+  braveApiKey?: string;
+  codebasePath?: string;
 }
 
 export type ActiveTab = 'chat' | 'capture';

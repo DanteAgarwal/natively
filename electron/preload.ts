@@ -25,6 +25,12 @@ export interface GhostAPI {
   getHealthTelemetry: () => Promise<any[]>;
   runHealthProbes: () => Promise<any[]>;
 
+  // Stealth Hybrid Search
+  searchWeb: (query: string, maxResults?: number) => Promise<any[]>;
+  searchMeeting: (query: string, maxResults?: number) => Promise<any[]>;
+  searchCodebase: (query: string, rootDir?: string, maxMatches?: number) => Promise<any[]>;
+  universalSearch: (query: string) => Promise<{ query: string; webResults: any[]; meetingResults: any[]; codebaseResults: any[]; searchTimeMs: number }>;
+
   // Meeting Audio (Rust Native Module - Speaker / System Audio)
   startMeetingAudio: (deviceId?: string) => Promise<{ success: boolean; error?: string }>;
   stopMeetingAudio: () => Promise<{ success: boolean; error?: string }>;
@@ -85,6 +91,12 @@ const api: GhostAPI = {
   resetCircuits: () => ipcRenderer.invoke('ghost:reset-circuits'),
   getHealthTelemetry: () => ipcRenderer.invoke('ghost:get-health-telemetry'),
   runHealthProbes: () => ipcRenderer.invoke('ghost:run-health-probes'),
+
+  // Stealth Hybrid Search
+  searchWeb: (query, maxResults) => ipcRenderer.invoke('ghost:search-web', { query, maxResults }),
+  searchMeeting: (query, maxResults) => ipcRenderer.invoke('ghost:search-meeting', { query, maxResults }),
+  searchCodebase: (query, rootDir, maxMatches) => ipcRenderer.invoke('ghost:search-codebase', { query, rootDir, maxMatches }),
+  universalSearch: (query) => ipcRenderer.invoke('ghost:universal-search', { query }),
 
   // Meeting Audio
   startMeetingAudio: (deviceId) => ipcRenderer.invoke('ghost:start-meeting-audio', { deviceId }),

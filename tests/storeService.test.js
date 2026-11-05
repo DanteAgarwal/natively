@@ -47,9 +47,9 @@ test('StoreService - Router Preset Configuration', () => {
 });
 
 test('StoreService - Obsolete Groq Model Auto-Migration', () => {
-  configService.setConfig({ groqModel: 'openai/gpt-oss-120b' });
+  configService.setConfig({ groqModel: 'llama-3.3-70b-versatile' });
   const updated = configService.getConfig();
-  assert.strictEqual(updated.groqModel, 'llama-3.3-70b-versatile', 'Decommissioned groq model should auto-migrate to flagship');
+  assert.strictEqual(updated.groqModel, 'openai/gpt-oss-120b', 'Decommissioned groq model should auto-migrate to flagship');
 });
 
 test('StoreService - Audio Output Device Persistence', () => {

@@ -34,14 +34,18 @@ test('Phase 0: Model Registry Defaults & Schema', () => {
   const allModels = modelRegistry.getAll();
   assert.ok(allModels.length >= 20, `Expected at least 20 models, got ${allModels.length}`);
 
-  // Groq deprecated models
+  // Removed down models must not exist in defaults
   const groq33 = modelRegistry.getById('groq', 'llama-3.3-70b-versatile');
-  assert.ok(groq33, 'llama-3.3-70b-versatile must exist');
-  assert.strictEqual(groq33.status, 'deprecated');
+  assert.strictEqual(groq33, undefined, 'llama-3.3-70b-versatile must be removed');
 
   const groq31 = modelRegistry.getById('groq', 'llama-3.1-8b-instant');
-  assert.ok(groq31, 'llama-3.1-8b-instant must exist');
-  assert.strictEqual(groq31.status, 'deprecated');
+  assert.strictEqual(groq31, undefined, 'llama-3.1-8b-instant must be removed');
+
+  const gemini20 = modelRegistry.getById('openrouter', 'google/gemini-2.0-flash-exp:free');
+  assert.strictEqual(gemini20, undefined, 'google/gemini-2.0-flash-exp:free must be removed');
+
+  const groq120 = modelRegistry.getById('groq', 'openai/gpt-oss-120b');
+  assert.ok(groq120, 'openai/gpt-oss-120b must be active');
 
   // Cerebras PROMO_CREDIT check (PRD §7.2)
   const cerebras = modelRegistry.getById('router', 'cerebras/llama-3.3-70b');
@@ -148,8 +152,10 @@ test('Phase 1: Health Probes & Deprecation Review', () => {
   assert.strictEqual(updated.consecutiveFailures, 0);
 
   // Deprecation review flags deprecated models
+  modelRegistry.updateStatus('groq', 'openai/gpt-oss-20b', 'deprecated');
   const deprecatedList = healthCheckManager.runDeprecationReview();
-  assert.ok(deprecatedList.length >= 2, 'Should flag deprecated Groq models');
+  assert.ok(deprecatedList.length >= 1, 'Should flag deprecated models');
+  modelRegistry.updateStatus('groq', 'openai/gpt-oss-20b', 'verified');
 });
 
 test('Phase 1: Catalog Sync & Candidate Queue', () => {
